@@ -16,7 +16,6 @@ library(ggcorrplot)
 library(MASS)
 library(arm)
 library(mgcv)
-library(ROSE)
 #ZIP.Code: postal code
 #CD.Account: certificate deposit, a type of savings account offered by banks and credit unions.
 
@@ -24,10 +23,11 @@ library(ROSE)
 #Importing the dataset
 data = read.csv("Bank_loan.csv", header = T)
 
-#removing outlier
-data <- data %>%
- filter(!(ZIP.Code == 9307))
+#removing ID and ZIP.CODE
+data = data %>%
+  dplyr::select(-c(ID, ZIP.Code))
 
+#making categorical variables factors
 data = data %>%
   mutate(across(c(Family, Education, Personal.Loan, Securities.Account, CD.Account, Online, CreditCard ),                           as.factor))
 
@@ -61,12 +61,10 @@ data %>%
 ```
 
 
-
-
 ```{r}
 #relations with numerical variables
 #Box plots
-data %>% filter(!(ZIP.Code == 9307)) %>% 
+data %>% 
   pivot_longer(cols = where(is.numeric)) %>%
   ggplot(aes(x = Personal.Loan, y = value, fill = Personal.Loan)) +
   geom_boxplot() +
@@ -80,6 +78,10 @@ data %>%
   dplyr::select(where(is.numeric)) %>%
   cor() %>%
   ggcorrplot( ggtheme = theme_classic(), outline.color = "black")
+
+#removing experience from the dataset
+data = data %>%
+  dplyr::select(-Experience)
 
 ```
 
@@ -100,234 +102,23 @@ data %>%
 ```
 
 
-
-
 ```{r}
-#Logistic model
-#Analisys with original
-full_model = glm(Personal.Loan ~ ., data = data, family = binomial(link = logit))
-summary(full_model)
-anova(full_model, test = "Chisq")
-
-model = glm(Personal.Loan ~ Income + Family + CCAvg + Education + Securities.Account + CD.Account + Online +                             CreditCard, data = data, family = binomial(link = logit))
-summary(model)
-
-#Model with interaction between Income and CCAvg
-inter_model = glm(Personal.Loan ~ Income + Family + CCAvg + Education + Securities.Account + CD.Account + Online +                             CreditCard + Income:CCAvg, data = data, family = binomial(link = logit))
-summary(inter_model)
-anova(inter_model, test = "Chisq")
-
-#Comparing different models with AIC and residuals deviance
-res_dev = c(full_model$deviance, model$deviance, inter_model$deviance)
-as.matrix(AIC(full_model, model, inter_model) %>% mutate(res_dev = res_dev))
-
-#Binned residuals
-binnedplot(inter_model$fitted.values, resid(inter_model))
-
-#Calculate performance of the model 
-#Random repeated train test without oversampling
-performance = matrix(0, 4, 10)
-for (i in 1:10){
-index <- sample(1:nrow(data), round(0.8 * nrow(data)), replace = FALSE)
-train = data[index, ]
-test = data[-index, ]
-
-train_model = glm(Personal.Loan ~ Income + Family + CCAvg + Education + Securities.Account + CD.Account + Online                               + CreditCard + Income:CCAvg, data = train, family = binomial)
-
-dummy_prediction = as.numeric(names(which.max(table(test$Personal.Loan))))
-prob = predict(train_model, newdata = test, type = "response")
-
-#Setting threshold to 0.5
-prediction = ifelse(prob > 0.5, 1, 0)
-contingency_table = table(prediction, test$Personal.Loan)
-
-performance[1,i] = mean(dummy_prediction == test$Personal.Loan) #Dummy accuracy
-performance[2,i] = mean(prediction == test$Personal.Loan) #Model accuracy
-performance[3, i] = contingency_table %>% {.[1,1] / sum(.[,1])} #TNR
-performance[4, i] = contingency_table %>% {.[2,2] / sum(.[,2])} #TPR
-}
-
-#Showing results
-performance %>% 
-  rowMeans() %>%
-  setNames(c("Dummy Accuracy", "Model Accuracy", "TNR", "TPR"))
-
-```
-
-
-
-
-```{r}
-#balancing original dataset
+#balancing original dataset with resempling
+set.seed(123)
 minority_data <- data[data$Personal.Loan == 1, ]
 majority_data <- data[data$Personal.Loan == 0, ]
 
-oversampled_minority_data <- minority_data[sample(1:nrow(minority_data), size = nrow(majority_data), replace = TRUE), ]
-
 #Dataset balanced with simple oversampling
-data_oversampled <- rbind(oversampled_minority_data, majority_data)
+data_oversampled = minority_data[sample(1:nrow(minority_data), size = nrow(majority_data), replace = TRUE), ] %>%
+  rbind(., majority_data)
 
-#Dataset balanced with ROSE
-balanced_data <- ROSE(Personal.Loan ~ ., data = data)$data
-
-#Analysis on balanced dataset with simple oversampling selecting the same variables as before
-full_model = glm(Personal.Loan ~ ., data = data_oversampled, family = binomial(link = logit))
-summary(full_model)
-anova(full_model, test = "Chisq")
-
-model = glm(Personal.Loan ~ Income + Family + CCAvg + Education + Securities.Account + CD.Account + Online + 
-            CreditCard, data = data_oversampled, family = binomial(link = logit))
-summary(model)
-
-inter_model = glm(Personal.Loan ~ Income + Family + CCAvg + Education + Securities.Account + CD.Account + Online +                    CreditCard + Income:CCAvg, data = data_oversampled, family = binomial(link = logit))
-summary(inter_model)
-anova(inter_model, test = "Chisq")
-
-res_dev = c(full_model$deviance, model$deviance, inter_model$deviance)
-as.matrix(AIC(full_model, model, inter_model) %>% mutate(res_dev = res_dev))
-
-#Calculate performance of the model 
-#test train random repeated with simple oversampling
-performance = matrix(0, 4, 10)
-for (i in 1:10){
-index <- sample(1:nrow(data), round(0.8 * nrow(data)), replace = FALSE)
-train = data[index, ]
-test = data[-index, ]
-
-#Simple oversampling on the train set
-minority_data <- train[train$Personal.Loan == 1, ]
-majority_data <- train[train$Personal.Loan == 0, ]
-oversampled_minority_data <- minority_data[sample(1:nrow(minority_data), size = nrow(majority_data), replace = TRUE), ]
-data_oversampled <- rbind(oversampled_minority_data, majority_data)
-
-train_model = glm(Personal.Loan ~ Income + Family + CCAvg + Education + Securities.Account + CD.Account + Online                               + CreditCard + Income:CCAvg, data = balanced_data, family = binomial)
-
-dummy_prediction = as.numeric(names(which.max(table(test$Personal.Loan))))
-prob = predict(train_model, newdata = test, type = "response")
-
-prediction = ifelse(prob > 0.5, 1, 0)
-
-contingency_table = table(prediction, test$Personal.Loan)
-
-performance[1,i] = mean(dummy_prediction == test$Personal.Loan)
-performance[2,i] = mean(prediction == test$Personal.Loan)
-performance[3, i] = contingency_table %>% {.[1,1] / sum(.[,1])}
-performance[4, i] = contingency_table %>% {.[2,2] / sum(.[,2])}
-}
-
-performance %>% 
-  rowMeans() %>%
-  setNames(c("Dummy Accuracy", "Model Accuracy", "TNR", "TPR"))
-
-#Finding best predictor using cross validation with ROSE and stepAIC
-#It counts how many time a covariate has been included in the model found by the stepAIC function
-vars_count = list()
-for(k in 1:10){
- for (i in 1:10){
-  j = ceiling(nrow(data) / 10)
-  start = j*(i-1) + 1
-  end = j * i
-  test = data[start:end, ]
-  train = data[-(start:end), ]
-  
-  train_balanced = ROSE(Personal.Loan ~ ., data = train)$data
-  
-  glm_model = glm(Personal.Loan ~ ., data = train_balanced, family = binomial(link = logit))
-  
-  aic_model = stepAIC(glm_model, trace = F)
-  
-  vars = names(coef(aic_model))
-  
-   for (var in vars) {
-    if (!is.null(vars_count[[var]])) {
-      vars_count[[var]] = vars_count[[var]] + 1
-    } else {
-      vars_count[[var]] = 1
-    }
-  }
- }
-}
-
-
-#Finding best predictor using crosss validation with simple oversampling and stepAIC
-#It counts how many time a covariate has been included in the model found by the stepAIC function
-vars_count = list()
-for(k in 1:10){
- for (i in 1:10){
-  j = ceiling(nrow(data) / 10)
-  start = j*(i-1) + 1
-  end = j * i
-  test = data[start:end, ]
-  train = data[-(start:end), ]
-  
-  minority_data <- train[train$Personal.Loan == 1, ]
-  majority_data <- train[train$Personal.Loan == 0, ]
-
-  oversampled_minority_data <- minority_data[sample(1:nrow(minority_data), size = nrow(majority_data), replace = TRUE), ]
-  
-  train_oversampled <- rbind(oversampled_minority_data, majority_data)
-  
-  glm_model = glm(Personal.Loan ~ ., data = train_oversampled, family = binomial(link = logit))
-  
-  aic_model = stepAIC(glm_model, trace = F)
-  
-  vars = names(coef(aic_model))
-  
-   for (var in vars) {
-    if (!is.null(vars_count[[var]])) {
-      vars_count[[var]] = vars_count[[var]] + 1
-    } else {
-      vars_count[[var]] = 1
-    }
-  }
- }
-}
-```
-
-
-
-
-```{r}
-#GAM model on original dataset
-gam_model1 = gam(Personal.Loan ~ Income + CCAvg + Family + Education + Securities.Account + CD.Account +                       Online + CreditCard + Income:CCAvg, family = binomial(link = logit),  data = data)
-summary(gam_model1)
-
-gam_model2 = gam(Personal.Loan ~ s(Income) + s(CCAvg) + Family + Education + Securities.Account + CD.Account +                                Online + CreditCard + Income:CCAvg, family = binomial(link = logit),  data = data)
-summary(gam_model2)
-
-#Binned residuals
-binnedplot(gam_model2$fitted.values, resid(gam_model1))
-
-#Estimated curve first without and then with residuals
-plot(gam_model2, pch = 19, pages = 1, col = "blue")
-plot(gam_model2, residuals = TRUE, pch = 19, pages = 1)
-
-AIC(gam_model2)
-
-#Calculate performance of the GAM model 
-#Random repeated train test without oversampling
-performance = matrix(0, 4, 10)
-for (i in 1:10){
-index <- sample(1:nrow(data), round(0.8 * nrow(data)), replace = FALSE)
-train = data[index, ]
-test = data[-index, ]
-
-train_model = gam(Personal.Loan ~ s(Income) + s(CCAvg) + Family + Education + Securities.Account + CD.Account                                  + Online + CreditCard + Income:CCAvg, family = binomial(link = logit),  data = train)
-
-prob = predict(train_model, newdata = test, type = "response")
-
-dummy_prediction = as.numeric(names(which.max(table(test$Personal.Loan))))
-prediction = ifelse(prob > 0.5, 1, 0)
-contingency_table = table(prediction, test$Personal.Loan)
-
-performance[1,i] = mean(dummy_prediction == test$Personal.Loan)
-performance[2,i] = mean(prediction == test$Personal.Loan)
-performance[3, i] = contingency_table %>% {.[1,1] / sum(.[,1])}
-performance[4, i] = contingency_table %>% {.[2,2] / sum(.[,2])}
-}
-
-performance %>% 
-  rowMeans() %>%
-  setNames(c("Dummy Accuracy", "Model Accuracy", "TNR", "TPR"))
+#Dataset balanced by replicating the subset of the less frequent class 10 times
+data_oversampled2 = rep(1:nrow(minority_data), each = 10) %>%
+  lapply(function(x) minority_data[x, ]) %>%
+  do.call(rbind, .) %>% rbind(., majority_data)
 
 ```
+
+
+
+
