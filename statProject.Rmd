@@ -19,7 +19,6 @@ library(mgcv)
 #ZIP.Code: postal code
 #CD.Account: certificate deposit, a type of savings account offered by banks and credit unions.
 
-#You have to download the dataset and be in the same directory
 #Importing the dataset
 data = read.csv("Bank_loan.csv", header = T)
 
