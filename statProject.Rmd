@@ -73,6 +73,9 @@ data = data %>%
 #Making categorical variables factors
 data = data %>%
   mutate(across(c(Family, Education, Personal.Loan, Securities.Account, CD.Account, Online, CreditCard ),                           as.factor))
+
+#Imbalance ratio
+IR = sum(data$Personal.Loan == 0) / sum(data$Personal.Loan == 1)
 ```
 
  
