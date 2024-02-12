@@ -58,6 +58,10 @@ library(pROC)
 library(glmnet)
 library(car)
 library(performance)
+library(see)
+library(e1071)
+library(caret)
+library(ROSE)
 
 #Importing the dataset
 data = read.csv("Bank_loan.csv", header = T)
