@@ -1066,3 +1066,376 @@ plot(roc1, main = "ROC curve")
 ggplot2::ggplot(varImp(rf1, useModel = FALSE))+ggtitle("Variable importance")
 ```
 In conclusion the balanced dataset performed slightly better than the unbalanced one in terms of AUC; the variable importance didn't change significantly among the datasets.
+
+
+# Bayesian Approach
+
+
+The last model we analyzed is a Bayesian logistic regression model: the coefficients of the variables were studied in a Bayesian approach. 
+
+After trying another package (UPG), we opted to use the brms package: Bayesian Multilevel Models using Stan.
+
+Since with many data the Bayesian model is very similar to the classic glm one, we tried to balance the dataset through undersampling.
+
+```{r, message=FALSE, warning=FALSE}
+# Identify indices of majority and minority classes
+
+data_train <- data[1:4500,]
+data_test <- data[4501:5000,]
+
+majority_indices <- which(data_train$Personal.Loan == 0)
+minority_indices <- which(data_train$Personal.Loan == 1)
+
+# Count the number of observations in each class
+num_majority <- length(majority_indices)
+num_minority <- length(minority_indices)
+
+# Undersample the majority class
+undersampled_indices <- sample(majority_indices, size = 3*num_minority)
+
+# Combine indices of minority and undersampled majority class
+balanced_indices <- c(undersampled_indices, minority_indices)
+
+# Create the balanced dataset
+balanced_data_train <- data[balanced_indices, ]
+
+shuffled_indices <- sample(nrow(balanced_data_train))
+
+# Use the sampled indices to reorder the rows
+balanced_data_train <- balanced_data_train[shuffled_indices, ]
+```
+
+
+
+```{r}
+# Glm model to compare with the Bayesian
+train_model = glm(Personal.Loan ~ Income + Family + CCAvg + Education + Securities.Account + 
+CD.Account + Online + CreditCard + Mortgage, data = balanced_data_train, family = binomial)
+summary(train_model)
+```
+
+
+
+```{r}
+predicted_probabilities <- predict(train_model, newdata = data_test)
+# Convert probabilities to binary predictions
+threshold <- 0.2
+predicted_labels <- ifelse(predicted_probabilities > threshold, 1, 0)
+y_test <- data_test$Personal.Loan
+
+# Calculate correct predictions
+correct_predictions <- sum(predicted_labels == y_test)
+print(paste("Assessment for GLM."))
+print(paste("Correct Predictions:", correct_predictions))
+
+# Calculate accuracy
+accuracy <- correct_predictions / length(y_test)
+print(paste("Accuracy:", accuracy))
+
+# Calculate true positives
+true_positives <- sum(predicted_labels == 1 & y_test == 1)
+
+# Calculate false negatives
+false_negatives <- sum(predicted_labels == 0 & y_test == 1)
+
+# Calculate true positive rate
+true_positive_rate <- true_positives / (true_positives + false_negatives)
+print(paste("True Positive Rate:", true_positive_rate))
+
+# Calculate AUC
+roc_curve <- roc(y_test, predicted_probabilities)
+auc_value <- auc(roc_curve)
+print(paste("AUC:", auc_value))
+
+# Dummy accuracy
+dummy_accuracy <- sum(y_test == 0) / length(y_test)
+print(paste("Dummy Accuracy:", dummy_accuracy))
+
+
+```
+
+Let's delve into the Bayesian model.
+Since we are facing a binary classification problem, the likelihood is:
+
+$$
+L(\beta | y, X ) = \Pi_i p(y_i | X_i, \beta)
+$$
+
+where 
+$$
+p(y_i | X_i, \beta) = \frac{1}{1+e^{-X_i\beta}}
+$$
+
+One of the initial challenges encountered in this modeling process is setting the prior distributions for the coefficients, it forced us to have an idea about the underlying system that produces the outcome variable Personal.Loan. 
+
+Since we don't have domain expertise and no expert opinion available, we did some research and developed our own opinion on the way the variables may influence the Personal.Loan variable.
+
+It is interesting to note that, reasonably, without setting the prior we obtain a model equal to the one we get with the function glm().
+
+```{r, message=FALSE, warning=FALSE}
+capture.output({
+
+# Define informative priors for each coefficient
+ prior_spec <- c(
+  # We don't set a Prior for the intercept, Age, CreditCard and Online,
+  # since we don't have an idea about them
+  # A person with high income has probably a stable financial situation and 
+  # can ask for a loan for long-term life projects
+  prior(normal(0.3, 0.3), class = "b", coef = "Income"),  
+  # we expect that a family of 2 people doesn't need a loan
+  prior(normal(-1, 0.5), class = "b", coef = "Family2"),
+  # a family with a child may need a loan, the same for 2 children
+    prior(normal(1, 0.5), class = "b", coef = "Family3"),
+    prior(normal(1.5, 0.5), class = "b", coef = "Family4"),  
+  # Individuals with higher credit card usage may need money, so they could ask for a loan
+  prior(normal(0.5, 0.5), class = "b", coef = "CCAvg"),
+  # People with higher education more likely may take the "risk" of accepting a loan
+  prior(normal(1, 0.5), class = "b", coef = "Education2"),
+  prior(normal(2, 0.5), class = "b", coef = "Education3"),
+  # A person with securities or cd account may need money and 
+  # can accept a loan because he knows he can repay it
+  # securities account, investments account
+  prior(normal(0.5, 0.5), class = "b", coef = "Securities.Account1"), 
+  # certificate of deposit account, which is a type of savings account 
+  # with a fixed term and interest rate
+  prior(normal(0.5, 0.5), class = "b", coef = "CD.Account1"), 
+  # if you have a mortgage active, you may not want to ask for a loan
+  prior(normal(-1, 0.3), class = "b", coef = "Mortgage")
+)
+
+# Fit the Bayesian logistic regression model with the specified priors
+
+  model <- brm(
+  formula = Personal.Loan ~ Age + Income + Family + CCAvg + Education + Mortgage 
+  + Securities.Account + CD.Account + Online + CreditCard,
+  data = balanced_data_train,
+  family = bernoulli(link = "logit"),
+  prior = prior_spec,
+  chains = 4, # controls parallel chains for convergence diagnostics.
+  iter = 2000, # determines the total number of iterations per chain.
+  warmup = 1000 # sets the number of warm-up iterations discarded before collecting posterior samples.
+)
+
+}, file = "/dev/null")
+
+```
+
+```{r}
+summary_model <- summary(model)
+summary_model
+```
+
+We can see that the sign of the coefficients stay the same, meaning that our prior may be somehow correct.
+
+We can also extract the WAIC coefficient, similar to the AIC: lower values indicate better model performance. 
+
+$$
+WAIC=-2(log.likelihood-pWAIC)
+$$
+
+Where pWAIC is the effective number of parameters, also known as the penalty term:
+
+$$
+pWAIC = \Sigma_i Var(log.likelihood_i)
+$$
+
+```{r}
+waic(model)
+```
+
+
+We use function hypothesis() of the brms package to test the significance of the predictors.
+
+```{r}
+# Hypothesis testing for coefficient significance
+# Bayesian model struggles with Age = 0, better test > or <
+hypothesis_testing_greater <- hypothesis(model, c("Age > 0", "Income > 0", "CCAvg > 0", "Mortgage > 0",
+                                           "Securities.Account1 > 0", "CD.Account1 > 0", "Online1 > 0", "CreditCard1 > 0", 
+                                           "Family2 > 0", "Family3 > 0", "Family4 > 0", "Education2 > 0", "Education3 > 0"),
+                                 scope = "standard", seed = NULL, alpha = 0.05)
+
+hypothesis_testing_less <- hypothesis(model, c("Age < 0", "Income < 0", "CCAvg < 0", "Mortgage < 0",
+                                          "Securities.Account1 < 0", "CD.Account1 < 0", "Online1 < 0", "CreditCard1 < 0", 
+                                          "Family2 < 0", "Family3 < 0", "Family4 < 0", "Education2 < 0", "Education3 < 0"),  
+                                 scope = "standard", seed = NULL, alpha = 0.05)
+hypothesis_testing_greater
+hypothesis_testing_less
+```
+
+
+We can state that Age, Mortgage and Securities.Account are not significant.
+
+We can also plot credibility intervals for the coefficients. 
+
+```{r}
+par(mar = c(5, 5, 4, 2), cex.axis = 0.5)
+
+# Extract coefficients and credible intervals
+# Exclude the intercept coefficient to visualize better the results
+coefficients <- summary_model$fixed[-1, "Estimate"]   
+lower_ci <- summary_model$fixed[-1, "l-95% CI"]
+upper_ci <- summary_model$fixed[-1, "u-95% CI"]
+
+# Plot coefficients with confidence intervals
+plot(x = 1:length(coefficients), y = coefficients, type = "p", cex = 0.5, 
+     ylim = range(c(lower_ci, upper_ci)),
+     main = "Coefficients with 95% CIs", xlab = "", ylab = "",
+     axes = FALSE, col = "blue")
+     axis(side = 1, at = 1:length(coefficients), 
+     labels = rownames(summary_model$fixed)[-1], las = 2)
+axis(side = 2)
+box()
+
+# Add vertical lines for confidence intervals
+segments(x0 = 1:length(coefficients), y0 = lower_ci, 
+         x1 = 1:length(coefficients), y1 = upper_ci, col = "red", lwd = 2)
+abline(h = 0, col = "black")
+
+
+```
+
+
+```{r}
+# Assessing the model
+# Extracting the response variable for the test data
+y_test <- data_test$Personal.Loan
+
+X_test <- data_test[, !(names(data_test) %in% c("Personal.Loan"))]
+
+# Make predictions on the test data
+posterior_predictions_test <- posterior_predict(model, newdata = X_test)
+  
+# Convert predictions to probabilities
+predicted_probabilities <- apply(posterior_predictions_test, 2, mean)
+  
+# Convert probabilities to binary predictions
+threshold <- 0.2
+predicted_labels <- ifelse(predicted_probabilities > threshold, 1, 0)
+
+# Calculate correct predictions
+correct_predictions <- sum(predicted_labels == y_test)
+print(paste("Assessment for Bayesian GLM."))
+print(paste("Correct Predictions:", correct_predictions))
+
+# Calculate accuracy
+accuracy <- correct_predictions / length(y_test)
+print(paste("Accuracy:", accuracy))
+
+# Calculate true positives
+true_positives <- sum(predicted_labels == 1 & y_test == 1)
+
+# Calculate false negatives
+false_negatives <- sum(predicted_labels == 0 & y_test == 1)
+
+# Calculate true positive rate
+true_positive_rate <- true_positives / (true_positives + false_negatives)
+print(paste("True Positive Rate:", true_positive_rate))
+
+# Calculate AUC
+roc_curve <- roc(y_test, predicted_probabilities)
+auc_value <- auc(roc_curve)
+print(paste("AUC:", auc_value))
+
+# Dummy accuracy
+dummy_accuracy <- sum(y_test == 0) / length(y_test)
+print(paste("Dummy Accuracy:", dummy_accuracy))
+
+```
+The AUC, which is the coefficient we choose to compare the models, is sligthly lower than the one of the Glm model.
+
+We also tried a 5-fold CV to compare the Bayesian and the classic Glm model, under-sampling on the train set, we got similar results, but the classic model is still better: Average AUC (glm): 0.963722250099581, Average AUC (brm): 0.958610378527511.
+
+
+About the significance of the coefficients, we try to fit another model with less variables and compare the WAICs.
+
+Let's try to modify the model cutting some variables and modify the priors (Mortgage, Age, Securities.Account the coefficient estimate is very close to 0 and the C.I. is very small) and computing again the WAIC.
+
+
+```{r, message=FALSE, warning=FALSE}
+capture.output({
+# Fit the Bayesian logistic regression model with the specified prior
+# Define informative priors for each coefficient
+prior_spec1 <- c(
+  prior(normal(0.3, 0.3), class = "b", coef = "Income"),
+  prior(normal(-1, 0.5), class = "b", coef = "Family2"),
+  prior(normal(1, 0.5), class = "b", coef = "Family3"),
+  prior(normal(1.5, 0.5), class = "b", coef = "Family4"),  
+  prior(normal(0.5, 0.5), class = "b", coef = "CCAvg"),
+  prior(normal(1, 0.5), class = "b", coef = "Education2"),
+  prior(normal(2, 0.5), class = "b", coef = "Education3"),
+  prior(normal(0.5, 0.5), class = "b", coef = "CD.Account1")
+)
+# Fit the Bayesian logistic regression model with the specified priors
+model1 <- brm(
+  formula = Personal.Loan ~  Income + Family + CCAvg + Education + 
+    CD.Account + Online + CreditCard,
+  data = balanced_data_train,
+  family = bernoulli(link = "logit"),
+  prior = prior_spec1,
+  chains = 4, # controls parallel chains for convergence diagnostics.
+  iter = 2000, # determines the total number of iterations per chain.
+  warmup = 1000 # sets the number of warm-up iterations discarded before collecting posterior samples.
+)
+
+}, file = "/dev/null")
+```
+
+
+```{r}
+summary_model1 <- summary(model1)
+summary_model1
+```
+```{r}
+waic(model1)
+```
+It is interesting to note that we get a lower WAIC, then we choose to take the reduced model.
+Let's assess it.
+
+
+```{r}
+# Extracting the response variable for the test data
+y_test <- data_test$Personal.Loan
+
+X_test <- data_test[, !(names(data_test) %in% c("Personal.Loan"))]
+
+# Make predictions on the test data
+posterior_predictions_test <- posterior_predict(model1, newdata = X_test)
+  
+# Convert predictions to probabilities
+predicted_probabilities <- apply(posterior_predictions_test, 2, mean) # with median is much worse
+  
+# Convert probabilities to binary predictions (0 or 1)
+threshold <- 0.2
+predicted_labels <- ifelse(predicted_probabilities > threshold, 1, 0)
+
+# Calculate correct predictions
+correct_predictions <- sum(predicted_labels == y_test)
+print(paste("Total Predictions for data1_test Bayesian GLM."))
+print(paste("Correct Predictions:", correct_predictions))
+
+# Calculate accuracy
+accuracy <- correct_predictions / length(y_test)
+print(paste("Accuracy:", accuracy))
+
+# Calculate true positives
+true_positives <- sum(predicted_labels == 1 & y_test == 1)
+
+# Calculate false negatives
+false_negatives <- sum(predicted_labels == 0 & y_test == 1)
+
+# Calculate true positive rate
+true_positive_rate <- true_positives / (true_positives + false_negatives)
+print(paste("True Positive Rate:", true_positive_rate))
+
+# Calculate AUC
+roc_curve <- roc(y_test, predicted_probabilities)
+auc_value <- auc(roc_curve)
+print(paste("AUC:", auc_value))
+
+# Dummy accuracy
+dummy_accuracy <- sum(y_test == 0) / length(y_test)
+print(paste("Dummy Accuracy:", dummy_accuracy))
+```
+
+
+
