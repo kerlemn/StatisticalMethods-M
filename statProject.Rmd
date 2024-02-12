@@ -58,6 +58,48 @@ data %>%
   facet_wrap(~ name, scales = "free") +
   xlab("") + ylab("")
 ```
+ABSTRACT
+
+In the following we show the results of the analysis of the Bank Loan dataset. Five different models have been built: logistic regression, GAM, Random forest, support vector machine, with linear and radial kernels, and a logistic bayesian model.
+First we conduct a data exploration phase, that ended by removing redundant variables, that either were highly correlated with some other variables or were not significant. This first analysis showed that the response variable, that is a binary variable, was strongly imbalanced with an imbalance ratio IR=9,42. Hence all models have been first trained on the imbalanced dataset, then all of them have been trained on a new balanced by oversampling dataset in order to compare the performances.
+In order to find the best model, for each we computed the four performance indexes: TPR, TNR, Accuracy and AUC. We decided to compare the models with their AUC concluding that the model that better performs is ____________ .
+
+DATA EXPLORATION 
+
+The Bank Loan contains informations about 5000 customers of a bank, for each it presents 14 variables:
+
+- 2 nominal variables: ID, Zip code
+- 2 ordinal categorical variables: 
+  - Family: family size of the costumer, between 1-4
+  - Educaton: education level of the costumer between 1-3
+- 5 numerical variables:
+  - Age: age of the costumer
+  - Experience: years of experience of the customer
+  - Income: annual income in k$
+  - CCAvg: average credit card spending per month in k$
+  - Mortgage: value of House Mortgage in k$
+- 5 binary categorical variables:
+  - CD.Account: indicates if the costumer has a certificate account of deposit
+  - CreditCard: indicates if the costumer uses a credit card
+  - Online: indicates if the costumer uses online facilities
+  - Securities.Account: indicates if the costumer has a a securities account
+  - Personal.Loan: indicates if the costumer joined the last personal loan campaign promoted by the bank
+
+The dataset does not contain any missing value and all the models consider Personal.Loan as response variable.
+
+In the pre-processing phase the nominal variables have been removed. The first, Id, because it does not contain any  statistical information, it is simply a row index, a serial number between 1 and 5000. In addition the ZIP.Code variable has been removed because being a nominal variable it cannot be subjected to any mathematical operation, such as mean or median. If used as a factor there are 467 unique values of this variable, so 467 different categories, that have been excluded to preserve the clarity of the analysis.
+
+The following plots show the variables distributions, we see that the response variable Personal.Loan is highly imbalanced, with an imbalance ratio IR=9.42. During the analysis we’ll analyze if the imbalance reduce the models’ performances comparing the results with those of the same models applied on the dataset balanced with appropriate techniques. Also we see that both Age and Experience have a similar uniform distribution, while CCAvg and Income have a right skewed distribution. 
+
+In the following box plots we can evaluate how the numerical variables are distributed with respect to the response variable. Two of the following seem to show different behaviors based on the response variable value: CCAvg and Income. Indeed the plots show that those clients that have joined the loan campaign have on average higher income and CCAvg. 
+
+We then looked for any correlation between the variables. The following heatmap is a representation of the correlation matrix. The first look shows that Age and Experience are highly correlated, that is clearly explainable by considering that the older the clients the higher is their experience. To avoid problems when building the models we decided to remove the Experience variable.
+
+Also we can find an interesting correlation between CCAvg and Income, they could be correlated by considering that clients with higher income on average tend to spend more money.
+We decided to keep both considering that the models perform well without showing any problems with the standard errors.
+
+In the last part of this analysis we show the relation between the categorical variables and the response variable. The most obvious differences are shown for the CD.Account variable, we see indeed an higher trend in joining the loan campaign for those clients with a certificate account of deposit.
+Moreover we see a difference based on education, those with higher education have been more inclined in joining the loan campaign.
 
 
 ```{r}
