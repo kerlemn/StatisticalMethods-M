@@ -727,6 +727,128 @@ print(ros.svm_summary)
 
 To conclude we can say that according to the Occam’s Razor principle we should prefer the imbalanced model that requires a lower computational effort. 
 
+\newpage
 
+# Random forest
 
+We then built a Random Forest model with a 10-fold cross-validation in order to better identify the best number of variable to consider for each tree. We tested the model with both the unbalanced and balanced datasets and to evaluate their performances we divided the data in training and testing sets before carry out the balancing.
 
+```{r, message=FALSE, echo=FALSE}
+library(randomForest)
+library(datasets)
+library(caret)
+library(ROCR)
+set.seed(123)
+```
+
+```{r}
+#Partitioning data in training and test datasets
+ind <- sample(2, nrow(data), replace = TRUE, prob = c(0.7, 0.3))
+train <- data[ind==1,]
+test <- data[ind==2,]
+
+#Dividing training dataset by the responce in order to perform oversampling
+
+minority_train_data <- train[train$Personal.Loan == 1, ]
+majority_train_data <- train[train$Personal.Loan == 0, ]
+```
+
+## Unbalanced dataset
+
+The cross-validation pointed out that the best number of variable to consider for each random forest, based on the training on the unbalanced dataset, is 7.
+
+```{r}
+#10-fold CV model evaluation with the unbalanced dataset
+train_control <- trainControl(method = "cv", number = 10)
+rf0 <- train(Personal.Loan~., data = train, 
+               method = "rf",
+               trControl = train_control)
+
+#Model description and confusion matrix based upon OOB samples
+print(rf0)
+```
+
+From the confusion matrix evaluated on the test set its worth noticing the TPR (sensitivity) of 99.92% and the TNR (specificity) of 88.48%.
+
+```{r}
+#Model test
+p0 <- predict(rf0, test)
+
+#Confusion matrix and statistics for the model assessment
+#Sensitivity -> TPR
+#Specificity -> TNR
+confusionMatrix(p0, test$Personal.Loan)
+```
+
+The resulting AUC for the unbalanced dataset is 94.20%.
+
+```{r}
+#AUC
+pr0 <- prediction(as.numeric(p0), test$Personal.Loan)
+auc0 <- performance(pr0, measure = "auc")@y.values[[1]]
+print(paste("AUC : ", auc0))
+```
+Finally its possible to look at the ROC curve and the variable importance plot.
+
+```{r}
+
+#ROC curve plot
+roc0 <- performance(pr0,"tpr", "fpr")
+plot(roc0, main = "ROC curve")
+
+#Variable importance plot
+ggplot2::ggplot(varImp(rf0, useModel = FALSE))+ggtitle("Variable importance")
+
+```
+
+## Balanced dataset
+
+For the balanced dataset too the cross-validation pointed out that the best number of variable to consider for each random forest is 7.
+
+```{r}
+#Balancing dataset with simple oversampling
+train_data_oversampled = minority_train_data[sample(1:nrow(minority_train_data), size = nrow(majority_train_data), replace = TRUE), ] %>%
+  rbind(., majority_train_data)
+
+#10-fold CV model evaluation
+rf1 <- train(Personal.Loan~., data = train_data_oversampled, 
+               method = "rf",
+               trControl = train_control)
+
+#Model description and confusion matrix based upon OOB samples
+print(rf1)
+```
+
+From the confusion matrix evaluated on the test set its worth noticing the TPR (sensitivity) of 99.55% and the TNR (specificity) of 92.73%.
+
+```{r}
+#Model test
+p1 <- predict(rf1, test)
+
+#Confusion matrix and statistics for the model assessment
+#Sensitivity -> TPR
+#Specificity -> TNR
+confusionMatrix(p1, test$Personal.Loan)
+```
+
+The resulting AUC for the balanced dataset is 96.14%.
+
+```{r}
+#AUC
+pr1 <- prediction(as.numeric(p1), test$Personal.Loan)
+auc1 <- performance(pr1, measure = "auc")@y.values[[1]]
+print(paste("AUC : ", auc1))
+
+```
+
+Finally its possible to look at the ROC curve and the variable importance plot for the balanced dataset too.
+
+```{r}
+#ROC curve plot
+roc1 <- performance(pr1,"tpr", "fpr")
+plot(roc1, main = "ROC curve")
+
+#Variable importance plot
+ggplot2::ggplot(varImp(rf1, useModel = FALSE))+ggtitle("Variable importance")
+```
+In conclusion the balanced dataset performed slightly better than the unbalanced one in terms of AUC; the variable importance didn't change significantly among the datasets.
