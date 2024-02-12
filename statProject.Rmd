@@ -1,11 +1,49 @@
 ---
-title: "R Notebook"
+title: "Statistical Analysis on Bank_Personal_Loan_Modelling Dataset "
+author: "Alessio Gaia, Barrasso Marco, Longo Andrea, Ruoppolo Emanuele, Zampar Marco"
+date: "2024-02-13"
 output:
   pdf_document: default
-  html_notebook: default
+  html_document: default
 ---
 
-```{r}
+
+# ABSTRACT
+
+In the following we show the results of the analysis of the Bank Loan dataset. Five different models have been built: logistic regression, Generalized Additive Model (GAM), Random forest, support vector machine, with linear and radial kernels, and a logistic bayesian model.
+First we conduct a data exploration phase, that ended by removing redundant variables, that either were highly correlated with some other variables or were not significant. This first analysis showed that the response variable, that is a binary variable, was strongly imbalanced with an imbalance ratio IR=9,42. All models were initially trained on the imbalanced dataset and then retrained on a dataset balanced by oversampling to compare performances.
+In order to find the best model, for each we computed the four performance indexes: accuracy, true positive rate (TPR), true negative rate (TNR), and the Area Under the Curve (AUC). We decided to compare the models with their AUC concluding that the model that better performs is the GAM one.
+
+# DATA EXPLORATION 
+
+The Bank Loan contains information about 5000 customers of a bank, for each it presents 14 variables:
+
+- 2 nominal variables: 
+  - **ID** 
+  - **Zip code**: postal code
+- 2 ordinal categorical variables: 
+  - **Family**: family size of the costumer, between 1-4
+  - **Educaton**: education level of the costumer between 1-3
+- 5 numerical variables:
+  - **Age**: age of the costumer
+  - **Experience**: years of experience of the customer
+  - **Income**: annual income in k$
+  - **CCAvg**: average credit card spending per month in k$
+  - **Mortgage**: value of House Mortgage in k$
+- 5 binary categorical variables:
+  - **CD.Account**: indicates if the costumer has a certificate account of deposit
+  - **CreditCard**: indicates if the costumer uses a credit card
+  - **Online**: indicates if the costumer uses online facilities
+  - **Securities.Account**: indicates if the costumer has a a securities account
+  - **Personal.Loan**: indicates if the costumer joined the last personal loan campaign promoted by the bank
+
+The dataset does not contain any missing value and all the models consider Personal.Loan as response variable.
+
+In the pre-processing phase the nominal variables have been removed. The first, Id, because it does not contain any  statistical information, it is simply a row index, a serial number between 1 and 5000. In addition the ZIP.Code variable has been removed because being a nominal variable it cannot be subjected to any mathematical operation, such as mean or median. If used as a factor there are 467 unique values of this variable, so 467 different categories, that have been excluded to preserve the clarity of the analysis.
+
+The following plots show the variables distributions, we see that the response variable Personal.Loan is highly imbalanced, with an imbalance ratio IR=9.42. During the analysis we’ll analyze if the imbalance reduce the models’ performances comparing the results with those of the same models applied on the dataset balanced with appropriate techniques. Also we see that both Age and Experience have a similar uniform distribution, while CCAvg and Income have a right skewed distribution.
+
+```{r, message=FALSE, echo=FALSE}
 library(ggplot2)
 library(GGally)
 library(dplyr)
@@ -16,95 +54,69 @@ library(ggcorrplot)
 library(MASS)
 library(arm)
 library(mgcv)
-#ZIP.Code: postal code
-#CD.Account: certificate deposit, a type of savings account offered by banks and credit unions.
+library(pROC)
+library(glmnet)
+library(car)
+library(performance)
 
 #Importing the dataset
 data = read.csv("Bank_loan.csv", header = T)
 
-#removing ID and ZIP.CODE
+#Removing ID and ZIP.CODE
 data = data %>%
   dplyr::select(-c(ID, ZIP.Code))
 
-#making categorical variables factors
+#Making categorical variables factors
 data = data %>%
   mutate(across(c(Family, Education, Personal.Loan, Securities.Account, CD.Account, Online, CreditCard ),                           as.factor))
+```
 
-#Bar plot response variable 
+ 
+ 
+ 
+
+```{r, message=FALSE}
 data %>%
   ggplot(aes(x = Personal.Loan, y = after_stat(count / sum(count)))) +
   geom_bar(fill = "skyblue", color = "black") +
   scale_x_discrete(labels = c("No", "Yes")) +
-  xlab("Personal Loan") + ylab("Relative Frequency")
+  xlab("Personal Loan") + ylab("Relative Frequency") +
+  ggtitle(" Barplot of Response Variable")
+```
 
-#Imbalance ratio
-IR = sum(data$Personal.Loan == 0) / sum(data$Personal.Loan == 1)
-IR
 
-#Histogram numerical variable
-data %>%
+\newpage 
+
+
+```{r}
+data %>% 
   pivot_longer(cols = where(is.numeric)) %>%
   ggplot(aes(x = value)) +
   geom_histogram(bins = 15, fill = "skyblue", color = "black") +
-  facet_wrap(~ name, scales = "free") + xlab("") + ylab("")
-  theme_grey() 
+  facet_wrap(~ name, scales = "free") + xlab("") + ylab("") +
+  ggtitle(" Histogram of Numerical Variables")
 
-#Bar plot categotical variables
-data %>%
+```
+
+\newpage
+
+```{r}
+data %>% 
   dplyr::select(-Personal.Loan) %>%
   pivot_longer(cols = where(is.factor)) %>%
   ggplot(aes(x = value)) +
   geom_bar(fill = "skyblue", color = "black") +
   facet_wrap(~ name, scales = "free") +
-  xlab("") + ylab("")
+  xlab("") + ylab("") + 
+  ggtitle(" Barplot of Categorical Variables")
+
 ```
-ABSTRACT
 
-In the following we show the results of the analysis of the Bank Loan dataset. Five different models have been built: logistic regression, GAM, Random forest, support vector machine, with linear and radial kernels, and a logistic bayesian model.
-First we conduct a data exploration phase, that ended by removing redundant variables, that either were highly correlated with some other variables or were not significant. This first analysis showed that the response variable, that is a binary variable, was strongly imbalanced with an imbalance ratio IR=9,42. Hence all models have been first trained on the imbalanced dataset, then all of them have been trained on a new balanced by oversampling dataset in order to compare the performances.
-In order to find the best model, for each we computed the four performance indexes: TPR, TNR, Accuracy and AUC. We decided to compare the models with their AUC concluding that the model that better performs is ____________ .
-
-DATA EXPLORATION 
-
-The Bank Loan contains informations about 5000 customers of a bank, for each it presents 14 variables:
-
-- 2 nominal variables: ID, Zip code
-- 2 ordinal categorical variables: 
-  - Family: family size of the costumer, between 1-4
-  - Educaton: education level of the costumer between 1-3
-- 5 numerical variables:
-  - Age: age of the costumer
-  - Experience: years of experience of the customer
-  - Income: annual income in k$
-  - CCAvg: average credit card spending per month in k$
-  - Mortgage: value of House Mortgage in k$
-- 5 binary categorical variables:
-  - CD.Account: indicates if the costumer has a certificate account of deposit
-  - CreditCard: indicates if the costumer uses a credit card
-  - Online: indicates if the costumer uses online facilities
-  - Securities.Account: indicates if the costumer has a a securities account
-  - Personal.Loan: indicates if the costumer joined the last personal loan campaign promoted by the bank
-
-The dataset does not contain any missing value and all the models consider Personal.Loan as response variable.
-
-In the pre-processing phase the nominal variables have been removed. The first, Id, because it does not contain any  statistical information, it is simply a row index, a serial number between 1 and 5000. In addition the ZIP.Code variable has been removed because being a nominal variable it cannot be subjected to any mathematical operation, such as mean or median. If used as a factor there are 467 unique values of this variable, so 467 different categories, that have been excluded to preserve the clarity of the analysis.
-
-The following plots show the variables distributions, we see that the response variable Personal.Loan is highly imbalanced, with an imbalance ratio IR=9.42. During the analysis we’ll analyze if the imbalance reduce the models’ performances comparing the results with those of the same models applied on the dataset balanced with appropriate techniques. Also we see that both Age and Experience have a similar uniform distribution, while CCAvg and Income have a right skewed distribution. 
+\newpage
 
 In the following box plots we can evaluate how the numerical variables are distributed with respect to the response variable. Two of the following seem to show different behaviors based on the response variable value: CCAvg and Income. Indeed the plots show that those clients that have joined the loan campaign have on average higher income and CCAvg. 
 
-We then looked for any correlation between the variables. The following heatmap is a representation of the correlation matrix. The first look shows that Age and Experience are highly correlated, that is clearly explainable by considering that the older the clients the higher is their experience. To avoid problems when building the models we decided to remove the Experience variable.
-
-Also we can find an interesting correlation between CCAvg and Income, they could be correlated by considering that clients with higher income on average tend to spend more money.
-We decided to keep both considering that the models perform well without showing any problems with the standard errors.
-
-In the last part of this analysis we show the relation between the categorical variables and the response variable. The most obvious differences are shown for the CD.Account variable, we see indeed an higher trend in joining the loan campaign for those clients with a certificate account of deposit.
-Moreover we see a difference based on education, those with higher education have been more inclined in joining the loan campaign.
-
-
 ```{r}
-#relations with numerical variables
-#Box plots
 data %>% 
   pivot_longer(cols = where(is.numeric)) %>%
   ggplot(aes(x = Personal.Loan, y = value, fill = Personal.Loan)) +
@@ -112,25 +124,45 @@ data %>%
   facet_wrap(~ name, scales = "free")  +
   scale_x_discrete(labels = c("No", "Yes")) +
   labs(x = "Personal Loan", y = "", fill = "Personal Loan") +
-  theme(legend.position = "none")
+  theme(legend.position = "none") + ggtitle("Relations with Numerical Variables")
 
-#Correlation matrix
-data %>%
+```
+
+
+\newpage
+
+We then looked for any correlation between the variables. The following heatmap is a representation of the correlation matrix. The first look shows that Age and Experience are highly correlated, that is clearly explainable by considering that the older the clients the higher is their experience. To avoid problems when building the models we decided to remove the Experience variable.
+
+
+```{r}
+data %>% 
   dplyr::select(where(is.numeric)) %>%
   cor() %>%
-  ggcorrplot( ggtheme = theme_classic(), outline.color = "black")
+  ggcorrplot( ggtheme = theme_classic(), outline.color = "black") +
+  ggtitle("Heatmap")
+```
 
-#removing experience from the dataset
+
+```{r, echo=FALSE}
+#Removing experience from the dataset
 data = data %>%
   dplyr::select(-Experience)
 
 ```
 
+Also we can find an interesting correlation between CCAvg and Income, they could be correlated by considering that clients with higher income on average tend to spend more money.
+We decided to keep both considering that the models perform well without showing any problems with the standard errors.
+
+\newpage
+
+In the last part of this analysis we show the relation between the categorical variables and the response variable. The most obvious differences are shown for the CD.Account variable, we see indeed an higher trend in joining the loan campaign for those clients with a certificate account of deposit.
+Moreover we see a difference based on education, those with higher education have been more inclined in joining the loan campaign.
 
 ```{r}
-#relations with categorical variables
+#Relations with categorical variables
 data %>%
-  pivot_longer(cols = c("CD.Account","Education", "Family", "Securities.Account", "Online", "CreditCard")) %>%
+  pivot_longer(cols = c("CD.Account","Education", "Family", 
+                        "Securities.Account", "Online", "CreditCard")) %>%
   group_by(name, value, Personal.Loan) %>%
   summarise(Count = n(), .groups = 'drop') %>%
   group_by(name, value) %>%
@@ -139,26 +171,315 @@ data %>%
   geom_bar(stat = "identity", position = "dodge", color = "black") +
   facet_wrap(~ name, scales = "free_x") +
   scale_fill_discrete(labels = c("0" = "No", "1" = "Yes")) +
-  labs(y = "Frequency") + xlab("")
+  labs(y = "Frequency") + xlab("") + ggtitle("Relations with Categorical Variables")
 ```
 
 
+\newpage 
+
+# Logistic Regression Analysis on Original Dataset
+
+We began by fitting a logistic regression model incorporating all available variables, aiming to assess their individual contributions to predicting personal loan acceptance. This initial model served as a baseline for understanding the significance of each predictor.
+
 ```{r}
-#balancing original dataset with resempling
+full_model = glm(Personal.Loan ~ ., data = data, family = binomial)
+summary(full_model)
+```
+
+\newpage
+Observations from the initial model indicated that *Age* and *Mortgage* were not statistically significant predictors of loan acceptance. Thus we fitted another model by excluding these variables to enhance model simplicity and focus on more impactful factors.
+
+```{r, echo = FALSE}
+data2 = data %>% dplyr::select(-c(Age, Mortgage))
+```
+
+```{r}
+model = glm(Personal.Loan ~. ,data = data2, family = binomial)
+summary(model)
+```
+
+\newpage
+
+Subsequent analysis explored the inclusion of interaction terms, specifically between *Income* and *Education* and between *Income* and *Family*.
+
+
+```{r}
+inter_model = glm(Personal.Loan ~. + Income:Education + Income:Family,
+                  data = data2, family = binomial)
+summary(inter_model)
+```
+
+
+The summary show that the effect of *Income* loan acceptance is not uniform across all levels of *Education* and *Family*. After adding interaction terms some of the coefficients became very large so later we tried a Ridge regression on the data.
+
+\newpage
+
+To check the contribution of each independent variable in the model we used the anova function.
+
+```{r}
+anova(inter_model, test = "Chisq")
+```
+
+To determine the most effective model, we firstly relied on the Akaike Information Criterion (AIC) and Residual Deviance as our primary selection metrics. These criteria allowed us to balance model fit and complexity.
+
+```{r}
+res_dev = c(full_model$deviance, model$deviance, inter_model$deviance)
+as.matrix(AIC(full_model, model, inter_model) %>% mutate(res_dev = res_dev))
+```
+
+\newpage
+
+Given the observation of notably high coefficients in the model that incorporated interaction terms, we used the Variance Inflation Factor (VIF) analysis to check the presence of multicollinearity among the independent variables. 
+
+```{r, warning=FALSE, message=FALSE}
+vif(inter_model)
+```
+
+Upon identifying values of Generalized Variance Inflation Factor (GVIF) that raised concerns regarding multicollinearity, we proceeded to fit a Ridge regression model. 
+
+```{r}
+#Preparing the data
+X = model.matrix(Personal.Loan ~ . + Income:Education + Income:Family, data = data2)[, -1]
+Y = data$Personal.Loan
+
+ridge_model = cv.glmnet(x = X, y = Y, family = "binomial", alpha = 0)
+ridge_model
+plot(ridge_model)
+
+coef(ridge_model, s = "lambda.min")
+```
+
+\newpage
+
+To validate our model selection and assess predictive performance, we implemented ten-fold cross-validation. This method provided a way for evaluating model accuracy, true positive rate (TPR), true negative rate (TNR), and the Area Under the Curve (AUC) of the Receiver Operating Characteristic (ROC), offering insights into the model's generalizability and effectiveness in predicting personal loan acceptance.
+
+```{r, warning=FALSE, echo = FALSE, message=FALSE}
+#Ten cross-fold validation without balancing 
+metrics = matrix(0, 40, 4)
+for (i in 1:10){
+  j = (nrow(data) / 10)
+  start = j*(i-1) + 1
+  end = j * i
+  test = data[start:end, ]
+  train = data[-(start:end), ]
+  
+  train_full_model = glm(Personal.Loan ~., data = train, family = binomial(link = logit))
+  
+  train_model = glm(Personal.Loan ~ Income + Family + CCAvg + Education 
+                    + Securities.Account + CD.Account + Online +
+                    CreditCard, data = train, family = binomial(link = logit))
+  
+  train_inter_model = glm(Personal.Loan ~ Income + Family + CCAvg + Education 
+                          + Securities.Account + CD.Account +  Online + CreditCard 
+                          + Income:Education + Income:Family, data = train,
+                          family = binomial(link = logit))
+  
+  X_train <- model.matrix(Personal.Loan ~ ., data = train)[, -1]  
+  Y_train <- train$Personal.Loan
+  X_test <- model.matrix(Personal.Loan ~ ., data = test)[, -1]  
+  Y_test <- test$Personal.Loan
+  
+  train_ridge =  cv.glmnet(X_train, Y_train, family = "binomial", alpha = 0, type.measure = "auc")
+  best_lambda = train_ridge$lambda.min
+  
+  prob_full = predict(train_full_model, newdata = test, type = "response")
+  prob = predict(train_model, newdata = test, type = "response")
+  prob_inter = predict(train_inter_model, newdata = test, type = "response")
+  prob_ridge = predict(train_ridge, newx = X_test, s = best_lambda, type = "response")
+  
+  prediction_full = ifelse(prob_full > 0.5, 1, 0)
+  prediction = ifelse(prob > 0.5, 1, 0)
+  prediction_inter = ifelse(prob_inter > 0.5, 1, 0)
+  prediction_ridge = ifelse(prob_ridge > 0.5, 1, 0)
+  
+  conf_full = table(prediction_full, test$Personal.Loan)
+  conf = table(prediction, test$Personal.Loan)
+  conf_inter = table(prediction_inter, test$Personal.Loan)
+  conf_ridge = table(prediction_ridge, test$Personal.Loan)
+  
+
+    
+  metrics[i, ] = c(sum(diag(conf_full)) / sum(conf_full), conf_full[2,2] / sum(conf_full[,2]),
+                   conf_full[1,1] / sum(conf_full[,1]), roc(response = test$Personal.Loan, predictor =                                          prob_full)$auc)
+                         
+  metrics[i+10, ] = c(sum(diag(conf)) / sum(conf), conf[2,2] / sum(conf[,2]),
+                      conf[1,1] / sum(conf[,1]), roc(response = test$Personal.Loan, predictor =                                                    prob)$auc)
+  
+  metrics[i+20, ] = c(sum(diag(conf_inter)) / sum(conf_inter), conf_inter[2,2] / sum(conf_inter[,2]),
+                      conf_inter[1,1] / sum(conf_inter[,1]), roc(response = test$Personal.Loan, predictor =                                        prob_inter)$auc)
+  
+  metrics[i+30, ] = c(sum(diag(conf_ridge)) / sum(conf_ridge), conf_ridge[2,2] / sum(conf_ridge[,2]),
+                      conf_ridge[1,1] / sum(conf_ridge[,1]), roc(response = test$Personal.Loan, predictor =                                        as.vector(prob_ridge))$auc)
+}
+
+performance = matrix(0, 4, 4)
+rownames(performance) = c("Full Model", "Restricted Model", "Interaction Model", "Ridge model")
+colnames(performance) = c("Accuracy", "TPR", "TNR", "AUC")
+
+for (i in 1:4){
+rows = ((i - 1) * 10 + 1):(i * 10)
+performance[i, ] = colMeans(metrics[rows, ])
+}
+
+performance
+```
+
+Lastly, we examined the binned residuals, defined as:
+
+*dividing the data into categories (bins) based on their fitted values, and then plotting the average residual versus the average fitted value for each bin* (Gelman, Hill 2007).
+
+```{r, warning=FALSE}
+plot(binned_residuals(inter_model))
+```
+
+
+\newpage 
+
+# Logistic Regression Analysis on Balanced Dataset
+
+Dealing with imbalanced dataset can bias the model towards the majority class, leading to suboptimal classification of the minority class. To address this issue, we decided to  balanced our dataset a priori through oversampling techniques. This process involved augmenting the minority class by replicating its instances, in order to have an equal representation of both classes in the dataset. This balanced approach aims to improve model sensitivity towards the minority class without compromising the overall predictive accuracy.
+
+
+```{r, echo=FALSE}
 set.seed(123)
 minority_data <- data[data$Personal.Loan == 1, ]
 majority_data <- data[data$Personal.Loan == 0, ]
 
 #Dataset balanced with simple oversampling
 data_oversampled = minority_data[sample(1:nrow(minority_data), size = nrow(majority_data), replace = TRUE), ] %>%
-  rbind(., majority_data)
+rbind(., majority_data)
 
-#Dataset balanced by replicating the subset of the less frequent class 10 times
-data_oversampled2 = rep(1:nrow(minority_data), each = 10) %>%
-  lapply(function(x) minority_data[x, ]) %>%
-  do.call(rbind, .) %>% rbind(., majority_data)
-
+data_oversampled2 = data_oversampled %>% dplyr::select(-c(Age, Mortgage))
 ```
+
+With the dataset balanced, we started with fitting a logistic regression model, mirroring the approach taken with the original dataset. This step served to establish a baseline.
+
+```{r}
+full_model = glm(Personal.Loan ~ ., data = data_oversampled, family = binomial(link = logit))
+summary(full_model)
+```
+
+\newpage
+
+Following the initial assessment, we refined the model by excluding variables identified as statistically insignificant, specifically *Age* and *Mortgage*.
+
+```{r}
+model = glm(Personal.Loan ~ . , data = data_oversampled2, family = binomial)
+summary(model)
+```
+
+\newpage
+
+Again we investigated the role of interaction terms between *Income* and *Education*, and *Income* and *Family*.
+
+```{r}
+inter_model = glm(Personal.Loan ~ . + Income:Education + Income:Family, 
+                  data = data_oversampled2, family = binomial)
+summary(inter_model)
+```
+
+\newpage
+
+```{r}
+anova(inter_model, test = "Chisq")
+
+res_dev = c(full_model$deviance, model$deviance, inter_model$deviance)
+as.matrix(AIC(full_model, model, inter_model) %>% mutate(res_dev = res_dev))
+```
+
+
+```{r, echo=FALSE}
+#Preparing the data
+X = model.matrix(Personal.Loan ~ . + Income:Education + Income:Family, data = data_oversampled2)[, -1]
+Y = data_oversampled2$Personal.Loan
+
+ridge_model = cv.glmnet(x = X, y = Y, family = "binomial", alpha = 0)
+```
+
+\newpage
+
+```{r}
+coef(ridge_model, s = "lambda.min")
+```
+
+To validate model performance we used again a ten-fold cross-validation using the same metrics as before but now each iteration we split the original dataset into train set and test set and we make oversampling only on the train one.
+This validation step is critical, especially in the context of a balanced dataset, to ensure that the oversampling process does not lead to overfitting and that the models maintain their predictive power on unseen data.
+
+
+```{r,echo=FALSE, warning=FALSE, message=FALSE}
+#Performance using ten cross-validation
+metrics = matrix(0, 40, 4)
+for (i in 1:10){
+  j = (nrow(data) / 10)
+  start = j*(i-1) + 1
+  end = j * i
+  test = data[start:end, ]
+  train = data[-(start:end), ]
+     
+  minority_train <- train[train$Personal.Loan == 1, ]
+  majority_train <- train[train$Personal.Loan == 0, ]
+ 
+  train_oversampled = minority_train[sample(1:nrow(minority_train), size = nrow(majority_train), replace = TRUE), ] %>%
+  rbind(., majority_train)
+  
+  train_full_model = glm(Personal.Loan ~ ., data = train_oversampled, family = binomial(link = logit))
+  
+  train_model = glm(Personal.Loan ~ Income + Family + CCAvg + Education + Securities.Account + CD.Account + Online +
+                    CreditCard, data = train_oversampled, family = binomial(link = logit))
+  
+  train_inter_model = glm(Personal.Loan ~ Income + Family + CCAvg + Education + Securities.Account + CD.Account +                                          Online + CreditCard + Income:Education + Income:Family, data = train_oversampled,
+                          family = binomial(link = logit))
+  
+  X_train <- model.matrix(Personal.Loan ~ ., data = train_oversampled)[, -1]  
+  Y_train <- train_oversampled$Personal.Loan
+  X_test <- model.matrix(Personal.Loan ~ ., data = test)[, -1]  
+  Y_test <- test$Personal.Loan
+  
+  train_ridge =  cv.glmnet(X_train, Y_train, family = "binomial", alpha = 0, type.measure = "auc")
+  best_lambda = train_ridge$lambda.min
+  
+  prob_full = predict(train_full_model, newdata = test, type = "response")
+  prob = predict(train_model, newdata = test, type = "response")
+  prob_inter = predict(train_inter_model, newdata = test, type = "response")
+  prob_ridge = predict(train_ridge, newx = X_test, s = best_lambda, type = "response")
+  
+  prediction_full = ifelse(prob_full > 0.5, 1, 0)
+  prediction = ifelse(prob > 0.5, 1, 0)
+  prediction_inter = ifelse(prob_inter > 0.5, 1, 0)
+  prediction_ridge = ifelse(prob_ridge > 0.5, 1, 0)
+  
+  conf_full = table(prediction_full, test$Personal.Loan)
+  conf = table(prediction, test$Personal.Loan)
+  conf_inter = table(prediction_inter, test$Personal.Loan)
+  conf_ridge = table(prediction_ridge, test$Personal.Loan)
+  
+    
+  metrics[i, ] = c(sum(diag(conf_full)) / sum(conf_full), conf_full[2,2] / sum(conf_full[,2]),
+                         conf_full[1,1] / sum(conf_full[,1]), roc(response = test$Personal.Loan, predictor =                                              prob_full)$auc)
+                         
+  metrics[i+10, ] = c(sum(diag(conf)) / sum(conf), conf[2,2] / sum(conf[,2]),
+                         conf[1,1] / sum(conf[,1]), roc(response = test$Personal.Loan, predictor =                                                        prob)$auc)
+  
+  metrics[i+20, ] = c(sum(diag(conf_inter)) / sum(conf_inter), conf_inter[2,2] / sum(conf_inter[,2]),
+                          conf_inter[1,1] / sum(conf_inter[,1]), roc(response = test$Personal.Loan, predictor =                                        prob_inter)$auc)
+  
+  metrics[i+30, ] = c(sum(diag(conf_ridge)) / sum(conf_ridge), conf_ridge[2,2] / sum(conf_ridge[,2]),
+                      conf_ridge[1,1] / sum(conf_ridge[,1]), roc(response = test$Personal.Loan, predictor =                                        as.vector(prob_ridge))$auc)
+}
+
+performance = matrix(0, 4, 4)
+rownames(performance) = c("Full Model", "Restricted Model", "Interaction Model", "Ridge model")
+colnames(performance) = c("Accuracy", "TPR", "TNR", "AUC")
+
+for (i in 1:4){
+rows = ((i - 1) * 10 + 1):(i * 10)
+performance[i, ] = colMeans(metrics[rows, ])
+}
+
+performance
+```
+
+
 
 
 
