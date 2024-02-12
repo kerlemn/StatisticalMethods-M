@@ -73,9 +73,6 @@ data = data %>%
 #Making categorical variables factors
 data = data %>%
   mutate(across(c(Family, Education, Personal.Loan, Securities.Account, CD.Account, Online, CreditCard ),                           as.factor))
-
-#Imbalance ratio
-IR = sum(data$Personal.Loan == 0) / sum(data$Personal.Loan == 1)
 ```
 
  
@@ -154,7 +151,6 @@ data %>%
 #Removing experience from the dataset
 data = data %>%
   dplyr::select(-Experience)
-
 ```
 
 Also we can find an interesting correlation between CCAvg and Income, they could be correlated by considering that clients with higher income on average tend to spend more money.
@@ -166,7 +162,6 @@ In the last part of this analysis we show the relation between the categorical v
 Moreover we see a difference based on education, those with higher education have been more inclined in joining the loan campaign.
 
 ```{r}
-#Relations with categorical variables
 data %>%
   pivot_longer(cols = c("CD.Account","Education", "Family", 
                         "Securities.Account", "Online", "CreditCard")) %>%
@@ -184,7 +179,9 @@ data %>%
 
 \newpage 
 
-# Logistic Regression Analysis on Original Dataset
+# Logistic Regression 
+
+## Analysis on Original Dataset
 
 We began by fitting a logistic regression model incorporating all available variables, aiming to assess their individual contributions to predicting personal loan acceptance. This initial model served as a baseline for understanding the significance of each predictor.
 
@@ -342,9 +339,10 @@ plot(binned_residuals(inter_model))
 
 \newpage 
 
-# Logistic Regression Analysis on Balanced Dataset
 
-Dealing with imbalanced dataset can bias the model towards the majority class, leading to suboptimal classification of the minority class. To address this issue, we decided to  balanced our dataset a priori through oversampling techniques. This process involved augmenting the minority class by replicating its instances, in order to have an equal representation of both classes in the dataset. This balanced approach aims to improve model sensitivity towards the minority class without compromising the overall predictive accuracy.
+## Analysis on Balanced Dataset
+
+Dealing with imbalanced dataset can bias the model towards the majority class, leading to suboptimal classification of the minority class. To address this issue, we decided to balanced our dataset a priori through oversampling techniques. This process involved augmenting the minority class by replicating its instances, in order to have an equal representation of both classes in the dataset. This balanced approach aims to improve model sensitivity towards the minority class without compromising the overall predictive accuracy.
 
 
 ```{r, echo=FALSE}
@@ -485,9 +483,12 @@ performance[i, ] = colMeans(metrics[rows, ])
 
 performance
 ```
+
+\newpage
+
 # Support Vector Machine
 
-# Imbalanced case
+## Imbalanced case
 
 We then built an SVM model, with both a linear and a radial kernel. Like in the previous cases the model has been first tested on the imbalanced dataset and then on a balanced with oversampling one. The procedure for both the models, balanced and imbalanced is the same. 
 
@@ -508,10 +509,10 @@ n <- nrow(data)
 train <- sample(n, 0.75*n)
 or_data_train <- data[train, ]
 data_test <- data[-train, ]
+IR = sum(data$Personal.Loan == 0) / sum(data$Personal.Loan == 1)
 
 #parameter tuning
 tune.out <- tune(svm, Personal.Loan ~ ., data = or_data_train, kernel = "radial",ranges = list(cost = c(1, IR, 100), gamma = c(0.25, 0.5, 1, 2)))
-summary(tune.out)
 gm <- as.numeric(tune.out$best.parameters["gamma"])
 
 #cross fold model
@@ -570,7 +571,7 @@ In the following summary we present the result coming from the imbalanced datase
 print(svm_summary)
 ```
 
-# Balanced case
+## Balanced case
 
 The same procedure has been done for the balanced case, with the only difference consisting in balancing for oversampling the train dataset before training the models. 
 
@@ -725,8 +726,6 @@ print(ros.svm_summary)
 ```
 
 To conclude we can say that according to the Occam’s Razor principle we should prefer the imbalanced model that requires a lower computational effort. 
-
-
 
 
 
