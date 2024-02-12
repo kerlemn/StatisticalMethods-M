@@ -478,6 +478,246 @@ performance[i, ] = colMeans(metrics[rows, ])
 
 performance
 ```
+# Support Vector Machine
+
+# Imbalanced case
+
+We then built an SVM model, with both a linear and a radial kernel. Like in the previous cases the model has been first tested on the imbalanced dataset and then on a balanced with oversampling one. The procedure for both the models, balanced and imbalanced is the same. 
+
+For the radial kernel model we first trained a single SVM radial model in order to tune the value of gamma and cost parameters. Using a 10-fold cross validation tuning function the results are the following: gamma=0.25 and cost = 10, we can note that the best value for the cost parameter is similar to the imbalance ratio, that hence is a good trade-off value between achieving a low training error and a low model complexity. Once these parameters have been set we implemented a 10-fold cross validation to train and test the model each time computing the performance indexes of interest. We then considered the mean value of each as estimator. 
+
+
+In the imbalanced case we divided the dataset in train and test data, trained both the linear kernel model and the radial one on the train data and then made the predictions. 
+For both the cases we built the confusion matrix to extract the TPR, the TNR and the Accuracy, we built the ROC curve and computed the AUC. 
+
+```{r, echo=FALSE}
+#Not balanced model
+set.seed(123)
+
+#before predicting with a 10-fold CV we tune on a single model the value for the gamma parameter, setting by default the value of cost equal to IR
+
+#Dividing test and train
+n <- nrow(data)
+train <- sample(n, 0.75*n)
+or_data_train <- data[train, ]
+data_test <- data[-train, ]
+
+#parameter tuning
+tune.out <- tune(svm, Personal.Loan ~ ., data = or_data_train, kernel = "radial",ranges = list(cost = c(1, IR, 100), gamma = c(0.25, 0.5, 1, 2)))
+summary(tune.out)
+gm <- as.numeric(tune.out$best.parameters["gamma"])
+
+#cross fold model
+
+auc.radial.vc <- c()
+auc.lin.vc <- c()
+tpr.radial.vc <- c()
+tnr.radial.vc <- c()
+tpr.lin.vc <- c()
+tnr.lin.vc <- c()
+acc.radial.vc <- c()
+acc.lin.vc <- c()
+
+# cv model
+
+for(i in 1:10){
+train <- sample(n, 0.75*n)
+data_train <- data[train, ]
+data_test <- data[-train, ]
+svm.linear.fit <- svm(Personal.Loan ~ ., data = data_train, kernel = "linear")
+svm.radial.fit <- svm(Personal.Loan ~ ., data = data_train, kernel = "radial", gamma = gm, cost = IR)
+svm.radial.pred <- predict(svm.radial.fit, newdata = data_test)
+svm.linear.pred <- predict(svm.linear.fit, newdata = data_test)
+cm.radial <- confusionMatrix(data = svm.radial.pred, reference = data_test$Personal.Loan, positive = "1")
+cm.linear <- confusionMatrix(data = svm.linear.pred, reference = data_test$Personal.Loan, positive = "1")
+auc.lin.vc[i] <- roc(data_test$Personal.Loan, predictor = as.numeric(svm.linear.pred), quiet = TRUE)$auc
+auc.radial.vc[i] <- roc(data_test$Personal.Loan, predictor = as.numeric(svm.radial.pred), quiet = TRUE)$auc
+acc.lin.vc[i] <- cm.linear$overall['Accuracy']
+acc.radial.vc[i] <- cm.radial$overall['Accuracy']
+tpr.lin.vc[i] <- cm.linear$table['1','1']/sum(cm.linear$table['1',])
+tpr.radial.vc[i] <- cm.radial$table['1','1']/sum(cm.radial$table['1',])
+tnr.lin.vc[i] <- cm.linear$table['0','0']/sum(cm.linear$table['0',])
+tnr.radial.vc[i] <- cm.radial$table['0','0']/sum(cm.radial$table['0',])
+}
+
+# Create a summary
+summary_matrix <- matrix(NA, nrow = 2, ncol = 4)
+
+# Fill in the values of the matrix
+row_names <- c("Linear", "Radial")
+col_names <- c("AUC", "Accuracy", "TPR", "TNR")
+rownames(summary_matrix) <- row_names
+colnames(summary_matrix) <- col_names
+summary_matrix[1, ] <- c(round(mean(auc.lin.vc), 2), round(mean(acc.lin.vc),2), round(mean(tpr.lin.vc),2), round(mean(tnr.lin.vc),2))
+summary_matrix[2, ] <- c(round(mean(auc.radial.vc),2), round(mean(acc.radial.vc),2), round(mean(tpr.radial.vc),2), round(mean(tnr.radial.vc),2))
+
+# Convert the matrix to a data frame
+svm_summary <- as.data.frame(summary_matrix)
+
+```
+
+In the following summary we present the result coming from the imbalanced dataset. We see that the model has good performances and as expected, the radial kernel model performs better than the linear one, with an AUC=0.92 .
+
+```{r}
+# Print the data frame
+print(svm_summary)
+```
+
+# Balanced case
+
+The same procedure has been done for the balanced case, with the only difference consisting in balancing for oversampling the train dataset before training the models. 
+
+```{r, echo=FALSE}
+#balanced model
+set.seed(123)
+
+#cross fold model
+
+bal.auc.radial.vc <- c()
+bal.auc.lin.vc <- c()
+bal.tpr.radial.vc <- c()
+bal.tnr.radial.vc <- c()
+bal.tpr.lin.vc <- c()
+bal.tnr.lin.vc <- c()
+bal.acc.radial.vc <- c()
+bal.acc.lin.vc <- c()
+
+# cv model
+
+for(i in 1:10){
+#dividing train and test
+train <- sample(n, 0.75*n)
+data_train_imb <- data[train, ]
+data_test <- data[-train, ]
+#balancing
+minority_data <- data_train_imb[data_train_imb$Personal.Loan == 1, ]
+majority_data <- data_train_imb[data_train_imb$Personal.Loan == 0, ]
+data_train = minority_data[sample(1:nrow(minority_data), size = nrow(majority_data), replace = TRUE), ] %>%
+  rbind(., majority_data)
+#balanced models
+bal.svm.linear.fit <- svm(Personal.Loan ~ ., data = data_train, kernel = "linear")
+bal.svm.radial.fit <- svm(Personal.Loan ~ ., data = data_train, kernel = "radial", gamma = gm, cost = IR)
+bal.svm.radial.pred <- predict(bal.svm.radial.fit, newdata = data_test)
+bal.svm.linear.pred <- predict(bal.svm.linear.fit, newdata = data_test)
+#computing the performance indexes
+
+#radial
+bal.cm.radial <- confusionMatrix(data = bal.svm.radial.pred, reference = data_test$Personal.Loan, positive = "1")
+bal.auc.radial.vc[i] <- roc(data_test$Personal.Loan, predictor = as.numeric(bal.svm.radial.pred), quiet = TRUE)$auc
+bal.acc.radial.vc[i] <- bal.cm.radial$overall['Accuracy']
+bal.tpr.radial.vc[i] <- bal.cm.radial$table['1','1']/sum(bal.cm.radial$table['1',])
+bal.tnr.radial.vc[i] <- bal.cm.radial$table['0','0']/sum(bal.cm.radial$table['0',])
+
+#linear
+bal.cm.linear <- confusionMatrix(data = bal.svm.linear.pred, reference = data_test$Personal.Loan, positive = "1")
+bal.auc.lin.vc[i] <- roc(data_test$Personal.Loan, predictor = as.numeric(bal.svm.linear.pred), quiet = TRUE)$auc
+bal.acc.lin.vc[i] <- bal.cm.linear$overall['Accuracy']
+bal.tpr.lin.vc[i] <- bal.cm.linear$table['1','1']/sum(bal.cm.linear$table['1',])
+bal.tnr.lin.vc[i] <- bal.cm.linear$table['0','0']/sum(bal.cm.linear$table['0',])
+
+}
+
+# Create a summary
+bal.summary_matrix <- matrix(NA, nrow = 2, ncol = 4)
+
+# Fill in the values of the matrix
+row_names <- c("Linear", "Radial")
+col_names <- c("AUC", "Accuracy", "TPR", "TNR")
+rownames(bal.summary_matrix) <- row_names
+colnames(bal.summary_matrix) <- col_names
+bal.summary_matrix[1, ] <- c(round(mean(bal.auc.lin.vc), 2), round(mean(bal.acc.lin.vc),2), round(mean(bal.tpr.lin.vc),2), round(mean(bal.tnr.lin.vc),2))
+bal.summary_matrix[2, ] <- c(round(mean(bal.auc.radial.vc),2), round(mean(bal.acc.radial.vc),2), round(mean(bal.tpr.radial.vc),2), round(mean(bal.tnr.radial.vc),2))
+
+# Convert the matrix to a data frame
+bal.svm_summary <- as.data.frame(bal.summary_matrix)
+
+```
+
+We now show the summary of the balanced case.
+
+```{r}
+# Print the data frame
+print(bal.svm_summary)
+```
+
+The resulting AUC is 0.93. We can note that the performances do not improve, and that the TPR for the linear kernel model falls at a lower value with respect to the imbalanced case. The reason for this fall could be due to a higher number of data out of the separating hyperplane. Indeed having less data, the loss function of the SVM model is able to penalize the data that cannot be separated and then generate a plan that better separates the remaining data. When increasing these data, the penalization could not be able to perform as the imbalanced case and then the resulting plane divides the data in a worse way such that TPR falls to TPR=0.5.  We also tried to use oversampling methods that generate new data, not only using replacement of the existing data. With this aim we use the ROSE method, but the results are similar, as demonstration that increasing the number of points lead to an increase of non separable points hence the resulting hyperplane is worse than the one coming from the imbalanced case. 
+
+```{r, echo=FALSE}
+#balanced model
+set.seed(123)
+
+#cross fold model
+
+ros.auc.radial.vc <- c()
+ros.auc.lin.vc <- c()
+ros.tpr.radial.vc <- c()
+ros.tnr.radial.vc <- c()
+ros.tpr.lin.vc <- c()
+ros.tnr.lin.vc <- c()
+ros.acc.radial.vc <- c()
+ros.acc.lin.vc <- c()
+
+# cv model
+
+for(i in 1:10){
+#dividing train and test
+train <- sample(n, 0.75*n)
+data_train_imb <- data[train, ]
+data_test <- data[-train, ]
+
+#balancing
+ros_data <-  ROSE(Personal.Loan ~ ., data = data_train_imb, seed = 123)
+data_train <- ros_data$data
+
+#balanced models
+ros.svm.linear.fit <- svm(Personal.Loan ~ ., data = data_train, kernel = "linear")
+ros.svm.radial.fit <- svm(Personal.Loan ~ ., data = data_train, kernel = "radial", gamma = gm, cost = IR)
+ros.svm.radial.pred <- predict(ros.svm.radial.fit, newdata = data_test)
+ros.svm.linear.pred <- predict(ros.svm.linear.fit, newdata = data_test)
+
+#computing the performance indexes
+
+#radial
+ros.cm.radial <- confusionMatrix(data = ros.svm.radial.pred, reference = data_test$Personal.Loan, positive = "1")
+ros.auc.radial.vc[i] <- roc(data_test$Personal.Loan, predictor = as.numeric(ros.svm.radial.pred), quiet = TRUE)$auc
+ros.acc.radial.vc[i] <- ros.cm.radial$overall['Accuracy']
+ros.tpr.radial.vc[i] <- ros.cm.radial$table['1','1']/sum(ros.cm.radial$table['1',])
+ros.tnr.radial.vc[i] <- ros.cm.radial$table['0','0']/sum(ros.cm.radial$table['0',])
+
+#linear
+ros.cm.linear <- confusionMatrix(data = ros.svm.linear.pred, reference = data_test$Personal.Loan, positive = "1")
+ros.auc.lin.vc[i] <- roc(data_test$Personal.Loan, predictor = as.numeric(ros.svm.linear.pred), quiet = TRUE)$auc
+ros.acc.lin.vc[i] <- ros.cm.linear$overall['Accuracy']
+ros.tpr.lin.vc[i] <- ros.cm.linear$table['1','1']/sum(ros.cm.linear$table['1',])
+ros.tnr.lin.vc[i] <- ros.cm.linear$table['0','0']/sum(ros.cm.linear$table['0',])
+
+}
+
+# Create a summary
+ros.summary_matrix <- matrix(NA, nrow = 2, ncol = 4)
+
+# Fill in the values of the matrix
+row_names <- c("Linear", "Radial")
+col_names <- c("AUC", "Accuracy", "TPR", "TNR")
+rownames(ros.summary_matrix) <- row_names
+colnames(ros.summary_matrix) <- col_names
+ros.summary_matrix[1, ] <- c(round(mean(ros.auc.lin.vc), 2), round(mean(ros.acc.lin.vc),2), round(mean(ros.tpr.lin.vc),2), round(mean(ros.tnr.lin.vc),2))
+ros.summary_matrix[2, ] <- c(round(mean(ros.auc.radial.vc),2), round(mean(ros.acc.radial.vc),2), round(mean(ros.tpr.radial.vc),2), round(mean(ros.tnr.radial.vc),2))
+
+# Convert the matrix to a data frame
+ros.svm_summary <- as.data.frame(ros.summary_matrix)
+
+
+```
+
+To be thorough we show the results obtained after applying the ROSE method. 
+
+```{r}
+# Print the data frame
+print(ros.svm_summary)
+```
+
+To conclude we can say that according to the Occam’s Razor principle we should prefer the imbalanced model that requires a lower computational effort. 
 
 
 
