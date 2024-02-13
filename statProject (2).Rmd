@@ -1,0 +1,1648 @@
+---
+title: "Statistical Analysis on Bank_Personal_Loan_Modelling Dataset "
+author: "Alessio Gaia, Barrasso Marco, Longo Andrea, Ruoppolo Emanuele, Zampar Marco"
+date: "2024-02-13"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+
+# ABSTRACT
+
+In the following we show the results of the analysis of the Bank Loan dataset. Five different models have been built: logistic regression, Generalized Additive Model (GAM), Random forest, support vector machine, with linear and radial kernels, and a logistic bayesian model.
+First we conduct a data exploration phase, that ended by removing redundant variables, that either were highly correlated with some other variables or were not significant. This first analysis showed that the response variable, that is a binary variable, was strongly imbalanced with an imbalance ratio IR=9,42. All models were initially trained on the imbalanced dataset and then retrained on a dataset balanced by oversampling to compare performances.
+In order to find the best model, for each we computed the four performance indexes: accuracy, true positive rate (TPR), true negative rate (TNR), and the Area Under the Curve (AUC). We decided to compare the models with their AUC concluding that the model that better performs is the GAM one.
+
+# DATA EXPLORATION 
+
+The Bank Loan contains information about 5000 customers of a bank, for each it presents 14 variables:
+
+- 2 nominal variables: 
+  - **ID** 
+  - **Zip code**: postal code
+- 2 ordinal categorical variables: 
+  - **Family**: family size of the costumer, between 1-4
+  - **Educaton**: education level of the costumer between 1-3
+- 5 numerical variables:
+  - **Age**: age of the costumer
+  - **Experience**: years of experience of the customer
+  - **Income**: annual income in k$
+  - **CCAvg**: average credit card spending per month in k$
+  - **Mortgage**: value of House Mortgage in k$
+- 5 binary categorical variables:
+  - **CD.Account**: indicates if the costumer has a certificate account of deposit
+  - **CreditCard**: indicates if the costumer uses a credit card
+  - **Online**: indicates if the costumer uses online facilities
+  - **Securities.Account**: indicates if the costumer has a a securities account
+  - **Personal.Loan**: indicates if the costumer joined the last personal loan campaign promoted by the bank
+
+The dataset does not contain any missing value and all the models consider Personal.Loan as response variable.
+
+In the pre-processing phase the nominal variables have been removed. The first, Id, because it does not contain any  statistical information, it is simply a row index, a serial number between 1 and 5000. In addition the ZIP.Code variable has been removed because being a nominal variable it cannot be subjected to any mathematical operation, such as mean or median. If used as a factor there are 467 unique values of this variable, so 467 different categories, that have been excluded to preserve the clarity of the analysis.
+
+The following plots show the variables distributions, we see that the response variable Personal.Loan is highly imbalanced, with an imbalance ratio IR=9.42. During the analysis we’ll analyze if the imbalance reduce the models’ performances comparing the results with those of the same models applied on the dataset balanced with appropriate techniques. Also we see that both Age and Experience have a similar uniform distribution, while CCAvg and Income have a right skewed distribution.
+
+```{r, message=FALSE, echo=FALSE}
+library(ggplot2)
+library(GGally)
+library(dplyr)
+library(tidyr)
+library(dbplyr)
+library(viridis)
+library(ggcorrplot)
+library(MASS)
+library(arm)
+library(mgcv)
+library(pROC)
+library(glmnet)
+library(car)
+library(performance)
+library(see)
+library(e1071)
+library(caret)
+library(ROSE)
+library(forcats)
+
+#Importing the dataset
+data = read.csv("Bank_loan.csv", header = T)
+
+#Removing ID and ZIP.CODE
+data = data %>%
+  dplyr::select(-c(ID, ZIP.Code))
+
+#Making categorical variables factors
+data = data %>%
+  mutate(across(c(Family, Education, Personal.Loan, Securities.Account, CD.Account, Online, CreditCard ),                           as.factor))
+```
+
+ 
+ 
+ 
+
+```{r, message=FALSE}
+data %>%
+  ggplot(aes(x = Personal.Loan, y = after_stat(count / sum(count)))) +
+  geom_bar(fill = "skyblue", color = "black") +
+  scale_x_discrete(labels = c("No", "Yes")) +
+  xlab("Personal Loan") + ylab("Relative Frequency") +
+  ggtitle(" Barplot of Response Variable")
+```
+
+
+\newpage 
+
+
+```{r}
+data %>% 
+  pivot_longer(cols = where(is.numeric)) %>%
+  ggplot(aes(x = value)) +
+  geom_histogram(bins = 15, fill = "skyblue", color = "black") +
+  facet_wrap(~ name, scales = "free") + xlab("") + ylab("") +
+  ggtitle(" Histogram of Numerical Variables")
+
+```
+
+\newpage
+
+```{r}
+data %>% 
+  dplyr::select(-Personal.Loan) %>%
+  pivot_longer(cols = where(is.factor)) %>%
+  ggplot(aes(x = value)) +
+  geom_bar(fill = "skyblue", color = "black") +
+  facet_wrap(~ name, scales = "free") +
+  xlab("") + ylab("") + 
+  ggtitle(" Barplot of Categorical Variables")
+
+```
+
+\newpage
+
+In the following box plots we can evaluate how the numerical variables are distributed with respect to the response variable. Two of the following seem to show different behaviors based on the response variable value: CCAvg and Income. Indeed the plots show that those clients that have joined the loan campaign have on average higher income and CCAvg. 
+
+```{r}
+data %>% 
+  pivot_longer(cols = where(is.numeric)) %>%
+  ggplot(aes(x = Personal.Loan, y = value, fill = Personal.Loan)) +
+  geom_boxplot() +
+  facet_wrap(~ name, scales = "free")  +
+  scale_x_discrete(labels = c("No", "Yes")) +
+  labs(x = "Personal Loan", y = "", fill = "Personal Loan") +
+  theme(legend.position = "none") + ggtitle("Relations with Numerical Variables")
+
+```
+
+
+\newpage
+
+We then looked for any correlation between the variables. The following heatmap is a representation of the correlation matrix. The first look shows that Age and Experience are highly correlated, that is clearly explainable by considering that the older the clients the higher is their experience. To avoid problems when building the models we decided to remove the Experience variable.
+
+
+```{r}
+data %>% 
+  dplyr::select(where(is.numeric)) %>%
+  cor() %>%
+  ggcorrplot( ggtheme = theme_classic(), outline.color = "black") +
+  ggtitle("Heatmap")
+```
+
+
+```{r, echo=FALSE}
+#Removing experience from the dataset
+data = data %>%
+  dplyr::select(-Experience)
+```
+
+Also we can find an interesting correlation between CCAvg and Income, they could be correlated by considering that clients with higher income on average tend to spend more money.
+We decided to keep both considering that the models perform well without showing any problems with the standard errors.
+
+\newpage
+
+In the last part of this analysis we show the relation between the categorical variables and the response variable. The most obvious differences are shown for the CD.Account variable, we see indeed an higher trend in joining the loan campaign for those clients with a certificate account of deposit.
+Moreover we see a difference based on education, those with higher education have been more inclined in joining the loan campaign.
+
+```{r}
+data %>%
+  pivot_longer(cols = c("CD.Account","Education", "Family", 
+                        "Securities.Account", "Online", "CreditCard")) %>%
+  group_by(name, value, Personal.Loan) %>%
+  summarise(Count = n(), .groups = 'drop') %>%
+  group_by(name, value) %>%
+  mutate(Freq = Count / sum(Count)) %>%
+  ggplot(aes(x = value, y = Freq, fill = Personal.Loan)) +
+  geom_bar(stat = "identity", position = "dodge", color = "black") +
+  facet_wrap(~ name, scales = "free_x") +
+  scale_fill_discrete(labels = c("0" = "No", "1" = "Yes")) +
+  labs(y = "Frequency") + xlab("") + ggtitle("Relations with Categorical Variables")
+```
+
+
+\newpage 
+
+# Logistic Regression 
+
+## Analysis on Original Dataset
+
+We began by fitting a logistic regression model incorporating all available variables, aiming to assess their individual contributions to predicting personal loan acceptance. This initial model served as a baseline for understanding the significance of each predictor.
+
+```{r}
+full_model = glm(Personal.Loan ~ ., data = data, family = binomial)
+summary(full_model)
+```
+
+\newpage
+Observations from the initial model indicated that *Age* and *Mortgage* were not statistically significant predictors of loan acceptance. Thus we fitted another model by excluding these variables to enhance model simplicity and focus on more impactful factors.
+
+```{r, echo = FALSE}
+data2 = data %>% dplyr::select(-c(Age, Mortgage))
+```
+
+```{r}
+model = glm(Personal.Loan ~. ,data = data2, family = binomial)
+summary(model)
+```
+
+\newpage
+
+Subsequent analysis explored the inclusion of interaction terms, specifically between *Income* and *Education* and between *Income* and *Family*.
+
+
+```{r}
+inter_model = glm(Personal.Loan ~. + Income:Education + Income:Family,
+                  data = data2, family = binomial)
+summary(inter_model)
+```
+
+
+The summary show that the effect of *Income* loan acceptance is not uniform across all levels of *Education* and *Family*. After adding interaction terms some of the coefficients became very large so later we tried a Ridge regression on the data.
+
+\newpage
+
+To check the contribution of each independent variable in the model we used the anova function.
+
+```{r}
+anova(inter_model, test = "Chisq")
+```
+
+To determine the most effective model, we firstly relied on the Akaike Information Criterion (AIC) and Residual Deviance as our primary selection metrics. These criteria allowed us to balance model fit and complexity.
+
+```{r}
+res_dev = c(full_model$deviance, model$deviance, inter_model$deviance)
+as.matrix(AIC(full_model, model, inter_model) %>% mutate(res_dev = res_dev))
+```
+
+\newpage
+
+Given the observation of notably high coefficients in the model that incorporated interaction terms, we used the Variance Inflation Factor (VIF) analysis to check the presence of multicollinearity among the independent variables. 
+
+```{r, warning=FALSE, message=FALSE}
+vif(inter_model)
+```
+
+Upon identifying values of Generalized Variance Inflation Factor (GVIF) that raised concerns regarding multicollinearity, we proceeded to fit a Ridge regression model. 
+
+```{r}
+#Preparing the data
+X = model.matrix(Personal.Loan ~ . + Income:Education + Income:Family, data = data2)[, -1]
+Y = data$Personal.Loan
+
+ridge_model = cv.glmnet(x = X, y = Y, family = "binomial", alpha = 0)
+ridge_model
+plot(ridge_model)
+
+coef(ridge_model, s = "lambda.min")
+```
+
+\newpage
+
+To validate our model selection and assess predictive performance, we implemented ten-fold cross-validation. This method provided a way for evaluating model accuracy, true positive rate (TPR), true negative rate (TNR), and the Area Under the Curve (AUC) of the Receiver Operating Characteristic (ROC), offering insights into the model's generalizability and effectiveness in predicting personal loan acceptance.
+
+```{r, warning=FALSE, echo = FALSE, message=FALSE}
+#Ten cross-fold validation without balancing 
+metrics = matrix(0, 40, 4)
+for (i in 1:10){
+  j = (nrow(data) / 10)
+  start = j*(i-1) + 1
+  end = j * i
+  test = data[start:end, ]
+  train = data[-(start:end), ]
+  
+  train_full_model = glm(Personal.Loan ~., data = train, family = binomial(link = logit))
+  
+  train_model = glm(Personal.Loan ~ Income + Family + CCAvg + Education 
+                    + Securities.Account + CD.Account + Online +
+                    CreditCard, data = train, family = binomial(link = logit))
+  
+  train_inter_model = glm(Personal.Loan ~ Income + Family + CCAvg + Education 
+                          + Securities.Account + CD.Account +  Online + CreditCard 
+                          + Income:Education + Income:Family, data = train,
+                          family = binomial(link = logit))
+  
+  X_train <- model.matrix(Personal.Loan ~ ., data = train)[, -1]  
+  Y_train <- train$Personal.Loan
+  X_test <- model.matrix(Personal.Loan ~ ., data = test)[, -1]  
+  Y_test <- test$Personal.Loan
+  
+  train_ridge =  cv.glmnet(X_train, Y_train, family = "binomial", alpha = 0, type.measure = "auc")
+  best_lambda = train_ridge$lambda.min
+  
+  prob_full = predict(train_full_model, newdata = test, type = "response")
+  prob = predict(train_model, newdata = test, type = "response")
+  prob_inter = predict(train_inter_model, newdata = test, type = "response")
+  prob_ridge = predict(train_ridge, newx = X_test, s = best_lambda, type = "response")
+  
+  prediction_full = ifelse(prob_full > 0.5, 1, 0)
+  prediction = ifelse(prob > 0.5, 1, 0)
+  prediction_inter = ifelse(prob_inter > 0.5, 1, 0)
+  prediction_ridge = ifelse(prob_ridge > 0.5, 1, 0)
+  
+  conf_full = table(prediction_full, test$Personal.Loan)
+  conf = table(prediction, test$Personal.Loan)
+  conf_inter = table(prediction_inter, test$Personal.Loan)
+  conf_ridge = table(prediction_ridge, test$Personal.Loan)
+  
+
+    
+  metrics[i, ] = c(sum(diag(conf_full)) / sum(conf_full), conf_full[2,2] / sum(conf_full[,2]),
+                   conf_full[1,1] / sum(conf_full[,1]), roc(response = test$Personal.Loan, predictor =                                          prob_full)$auc)
+                         
+  metrics[i+10, ] = c(sum(diag(conf)) / sum(conf), conf[2,2] / sum(conf[,2]),
+                      conf[1,1] / sum(conf[,1]), roc(response = test$Personal.Loan, predictor =                                                    prob)$auc)
+  
+  metrics[i+20, ] = c(sum(diag(conf_inter)) / sum(conf_inter), conf_inter[2,2] / sum(conf_inter[,2]),
+                      conf_inter[1,1] / sum(conf_inter[,1]), roc(response = test$Personal.Loan, predictor =                                        prob_inter)$auc)
+  
+  metrics[i+30, ] = c(sum(diag(conf_ridge)) / sum(conf_ridge), conf_ridge[2,2] / sum(conf_ridge[,2]),
+                      conf_ridge[1,1] / sum(conf_ridge[,1]), roc(response = test$Personal.Loan, predictor =                                        as.vector(prob_ridge))$auc)
+}
+
+performance = matrix(0, 4, 4)
+rownames(performance) = c("Full Model", "Restricted Model", "Interaction Model", "Ridge model")
+colnames(performance) = c("Accuracy", "TPR", "TNR", "AUC")
+
+for (i in 1:4){
+rows = ((i - 1) * 10 + 1):(i * 10)
+performance[i, ] = colMeans(metrics[rows, ])
+}
+
+performance
+```
+
+Lastly, we examined the binned residuals, defined as:
+
+*dividing the data into categories (bins) based on their fitted values, and then plotting the average residual versus the average fitted value for each bin* (Gelman, Hill 2007).
+
+```{r, warning=FALSE}
+plot(binned_residuals(inter_model))
+```
+
+
+\newpage 
+
+
+## Analysis on Balanced Dataset
+
+Dealing with imbalanced dataset can bias the model towards the majority class, leading to suboptimal classification of the minority class. To address this issue, we decided to balanced our dataset a priori through oversampling techniques. This process involved augmenting the minority class by replicating its instances, in order to have an equal representation of both classes in the dataset. This balanced approach aims to improve model sensitivity towards the minority class without compromising the overall predictive accuracy.
+
+
+```{r, echo=FALSE}
+set.seed(123)
+minority_data <- data[data$Personal.Loan == 1, ]
+majority_data <- data[data$Personal.Loan == 0, ]
+
+#Dataset balanced with simple oversampling
+data_oversampled = minority_data[sample(1:nrow(minority_data), size = nrow(majority_data), replace = TRUE), ] %>%
+rbind(., majority_data)
+
+data_oversampled2 = data_oversampled %>% dplyr::select(-c(Age, Mortgage))
+```
+
+With the dataset balanced, we started with fitting a logistic regression model, mirroring the approach taken with the original dataset. This step served to establish a baseline.
+
+```{r}
+full_model = glm(Personal.Loan ~ ., data = data_oversampled, family = binomial(link = logit))
+summary(full_model)
+```
+
+\newpage
+
+Following the initial assessment, we refined the model by excluding variables identified as statistically insignificant, specifically *Age* and *Mortgage*.
+
+```{r}
+model = glm(Personal.Loan ~ . , data = data_oversampled2, family = binomial)
+summary(model)
+```
+
+\newpage
+
+Again we investigated the role of interaction terms between *Income* and *Education*, and *Income* and *Family*.
+
+```{r}
+inter_model = glm(Personal.Loan ~ . + Income:Education + Income:Family, 
+                  data = data_oversampled2, family = binomial)
+summary(inter_model)
+```
+
+\newpage
+
+```{r}
+anova(inter_model, test = "Chisq")
+
+res_dev = c(full_model$deviance, model$deviance, inter_model$deviance)
+as.matrix(AIC(full_model, model, inter_model) %>% mutate(res_dev = res_dev))
+```
+
+
+```{r, echo=FALSE}
+#Preparing the data
+X = model.matrix(Personal.Loan ~ . + Income:Education + Income:Family, data = data_oversampled2)[, -1]
+Y = data_oversampled2$Personal.Loan
+
+ridge_model = cv.glmnet(x = X, y = Y, family = "binomial", alpha = 0)
+```
+
+\newpage
+
+```{r}
+coef(ridge_model, s = "lambda.min")
+```
+
+To validate model performance we used again a ten-fold cross-validation using the same metrics as before but now each iteration we split the original dataset into train set and test set and we make oversampling only on the train one.
+This validation step is critical, especially in the context of a balanced dataset, to ensure that the oversampling process does not lead to overfitting and that the models maintain their predictive power on unseen data.
+
+
+```{r,echo=FALSE, warning=FALSE, message=FALSE}
+#Performance using ten cross-validation
+metrics = matrix(0, 40, 4)
+for (i in 1:10){
+  j = (nrow(data) / 10)
+  start = j*(i-1) + 1
+  end = j * i
+  test = data[start:end, ]
+  train = data[-(start:end), ]
+     
+  minority_train <- train[train$Personal.Loan == 1, ]
+  majority_train <- train[train$Personal.Loan == 0, ]
+ 
+  train_oversampled = minority_train[sample(1:nrow(minority_train), size = nrow(majority_train), replace = TRUE), ] %>%
+  rbind(., majority_train)
+  
+  train_full_model = glm(Personal.Loan ~ ., data = train_oversampled, family = binomial(link = logit))
+  
+  train_model = glm(Personal.Loan ~ Income + Family + CCAvg + Education + Securities.Account + CD.Account + Online +
+                    CreditCard, data = train_oversampled, family = binomial(link = logit))
+  
+  train_inter_model = glm(Personal.Loan ~ Income + Family + CCAvg + Education + Securities.Account + CD.Account +                                          Online + CreditCard + Income:Education + Income:Family, data = train_oversampled,
+                          family = binomial(link = logit))
+  
+  X_train <- model.matrix(Personal.Loan ~ ., data = train_oversampled)[, -1]  
+  Y_train <- train_oversampled$Personal.Loan
+  X_test <- model.matrix(Personal.Loan ~ ., data = test)[, -1]  
+  Y_test <- test$Personal.Loan
+  
+  train_ridge =  cv.glmnet(X_train, Y_train, family = "binomial", alpha = 0, type.measure = "auc")
+  best_lambda = train_ridge$lambda.min
+  
+  prob_full = predict(train_full_model, newdata = test, type = "response")
+  prob = predict(train_model, newdata = test, type = "response")
+  prob_inter = predict(train_inter_model, newdata = test, type = "response")
+  prob_ridge = predict(train_ridge, newx = X_test, s = best_lambda, type = "response")
+  
+  prediction_full = ifelse(prob_full > 0.5, 1, 0)
+  prediction = ifelse(prob > 0.5, 1, 0)
+  prediction_inter = ifelse(prob_inter > 0.5, 1, 0)
+  prediction_ridge = ifelse(prob_ridge > 0.5, 1, 0)
+  
+  conf_full = table(prediction_full, test$Personal.Loan)
+  conf = table(prediction, test$Personal.Loan)
+  conf_inter = table(prediction_inter, test$Personal.Loan)
+  conf_ridge = table(prediction_ridge, test$Personal.Loan)
+  
+    
+  metrics[i, ] = c(sum(diag(conf_full)) / sum(conf_full), conf_full[2,2] / sum(conf_full[,2]),
+                         conf_full[1,1] / sum(conf_full[,1]), roc(response = test$Personal.Loan, predictor =                                              prob_full)$auc)
+                         
+  metrics[i+10, ] = c(sum(diag(conf)) / sum(conf), conf[2,2] / sum(conf[,2]),
+                         conf[1,1] / sum(conf[,1]), roc(response = test$Personal.Loan, predictor =                                                        prob)$auc)
+  
+  metrics[i+20, ] = c(sum(diag(conf_inter)) / sum(conf_inter), conf_inter[2,2] / sum(conf_inter[,2]),
+                          conf_inter[1,1] / sum(conf_inter[,1]), roc(response = test$Personal.Loan, predictor =                                        prob_inter)$auc)
+  
+  metrics[i+30, ] = c(sum(diag(conf_ridge)) / sum(conf_ridge), conf_ridge[2,2] / sum(conf_ridge[,2]),
+                      conf_ridge[1,1] / sum(conf_ridge[,1]), roc(response = test$Personal.Loan, predictor =                                        as.vector(prob_ridge))$auc)
+}
+
+performance = matrix(0, 4, 4)
+rownames(performance) = c("Full Model", "Restricted Model", "Interaction Model", "Ridge model")
+colnames(performance) = c("Accuracy", "TPR", "TNR", "AUC")
+
+for (i in 1:4){
+rows = ((i - 1) * 10 + 1):(i * 10)
+performance[i, ] = colMeans(metrics[rows, ])
+}
+
+performance
+```
+
+
+# Generalized Additive Models on Original Dataset
+
+We started fitting a model that includes all variables; this first formulation includes smooth terms for Age, Income, CCAvg and Mortgage, allowing greater flexibility in the relationship between these variables and the response variable Personal.Loan, while also incorporating categorical factors representing Family, Education, Securities.Account, CD.Account, Online, and CreditCard, considered as linear.  
+```{r}
+full_model <- gam(Personal.Loan ~ s(Age) + s(Income) + s(CCAvg) + s(Mortgage) +
+                    Family + Education + Securities.Account + 
+                    CD.Account + Online + CreditCard , data = data, family = binomial)
+summary(full_model)
+```
+
+The second model excludes non-significant variables Age and Mortgage, and utilizes only Income and CCAvg as smooth terms. The other variables remain the same as in the first model.
+```{r}
+model <- gam(Personal.Loan ~ s(Income) + s(CCAvg) +
+                    Family + Education + Securities.Account + 
+                    CD.Account + Online + CreditCard , data = data, family = binomial)
+summary(model)
+```
+
+The third model includes also interactions between Income and Family or Education.They demonstrated significance, suggesting that the relationship between income and loan eligibility varies based on family size and education level.
+```{r}
+inter_model <- gam(Personal.Loan ~ s(Income) + s(CCAvg) +
+                    Family + Education + Securities.Account + 
+                    CD.Account + Online + CreditCard + Income:Family + Income:Education , data = data, family = binomial)
+summary(inter_model)
+```
+
+There we plots the residuals of model with interactions to assess the model's fit.
+```{r}
+plot(inter_model, residuals=TRUE, pch=1, pages=1)
+```
+
+To determine the most effective model, we calculated and compared the Akaike Information Criterion (AIC) values of the full model, the model, and the model with interactions, alongside their deviance residuals. 
+```{r}
+res_dev= c(full_model$deviance, model$deviance, inter_model$deviance)
+as.matrix(AIC(full_model, model, inter_model) %>% mutate(res_dev=res_dev))
+```
+
+Finally we plotted the fitted smooth effects to visually assess the model's fit and identify any potential issues.
+```{r}
+formula <- Personal.Loan ~ s(Income) + s(CCAvg) + Family + Education + Securities.Account + CD.Account + Online + CreditCard + Income:Family + Income:Education
+model <- gam(formula, data = data, family = binomial)
+num_variables <- length(model$terms)
+num_rows <- ceiling(num_variables / 2)  
+par(mfrow = c(num_rows, 2))  
+for (i in 1:num_variables) {
+  plot(model, select = i)
+}
+```
+
+To evaluate the predictive performance, we implemented ten-fold cross-validation. This method allowed us to evaluate the model's accuracy, true positive rate (TPR), true negative rate (TNR) and area under the curve (AUC) of receiver operating characteristic (ROC).
+```{r, message=FALSE, warning=FALSE}
+# Function to perform cross-validation with a GAM model and return the mean evaluation metrics
+cv_gam_full_unbalanced <- function(data, formula, k = 10) {
+  # Initialize variables to store evaluation metrics across all folds
+  accuracy <- numeric(k)
+  tpr <- numeric(k)
+  tnr <- numeric(k)
+  auc <- numeric(k)
+  
+  # Create cross-validation folds
+  folds <- createFolds(data$Personal.Loan, k = k)
+  
+  # For each fold
+  for (i in 1:k) {
+    # Extract training and test sets
+    train <- data[-folds[[i]], ]
+    test <- data[folds[[i]], ]
+    
+    # Train the full GAM model on the training set
+    full_model <- gam(formula, data = train, family = binomial)
+    
+    # Evaluate the model on the test set
+    predictions <- predict(full_model, newdata = test, type = "response")
+    cm <- confusionMatrix(as.factor(ifelse(predictions > 0.5, 1, 0)), as.factor(test$Personal.Loan))
+    
+    # Calculate and store evaluation metrics for this fold
+    accuracy[i] <- cm$overall['Accuracy']
+    tpr[i] <- cm$table['1','1'] / sum(cm$table['1',])
+    tnr[i] <- cm$table['0','0'] / sum(cm$table['0',])
+    auc[i] <- roc(test$Personal.Loan, predictions)$auc
+  }
+  
+  # Calculate mean evaluation metrics across all folds
+  mean_accuracy <- mean(accuracy)
+  mean_tpr <- mean(tpr)
+  mean_tnr <- mean(tnr)
+  mean_auc <- mean(auc)
+  
+  # Return the mean evaluation metrics
+  return(c(mean_accuracy = mean_accuracy, mean_tpr = mean_tpr, mean_tnr = mean_tnr, mean_auc = mean_auc))
+}
+
+# Perform cross-validation with the full GAM model and obtain mean evaluation metrics
+cv_results_full_unbalanced <- cv_gam_full_unbalanced(data, formula, k = 10)
+
+# Print the title for the output matrix
+cat("Full Model")
+
+# Print the mean evaluation metrics
+print(cv_results_full_unbalanced)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+# Function to perform cross-validation with a GAM model and return the mean evaluation metrics
+cv_gam_model_unbalanced <- function(data, formula, k = 10) {
+  # Initialize variables to store evaluation metrics across all folds
+  accuracy <- numeric(k)
+  tpr <- numeric(k)
+  tnr <- numeric(k)
+  auc <- numeric(k)
+  
+  # Create cross-validation folds
+  folds <- createFolds(data$Personal.Loan, k = k)
+  
+  # For each fold
+  for (i in 1:k) {
+    # Extract training and test sets
+    train <- data[-folds[[i]], ]
+    test <- data[folds[[i]], ]
+    
+    # Train the GAM model on the training set
+    model <- gam(formula, data = train, family = binomial)
+    
+    # Evaluate the model on the test set
+    predictions <- predict(model, newdata = test, type = "response")
+    cm <- confusionMatrix(as.factor(ifelse(predictions > 0.5, 1, 0)), as.factor(test$Personal.Loan))
+    
+    # Calculate and store evaluation metrics for this fold
+    accuracy[i] <- cm$overall['Accuracy']
+    tpr[i] <- cm$table['1','1'] / sum(cm$table['1',])
+    tnr[i] <- cm$table['0','0'] / sum(cm$table['0',])
+    auc[i] <- roc(test$Personal.Loan, predictions)$auc
+  }
+  
+  # Calculate mean evaluation metrics across all folds
+  mean_accuracy <- mean(accuracy)
+  mean_tpr <- mean(tpr)
+  mean_tnr <- mean(tnr)
+  mean_auc <- mean(auc)
+  
+  # Return the mean evaluation metrics
+  return(c(mean_accuracy = mean_accuracy, mean_tpr = mean_tpr, mean_tnr = mean_tnr, mean_auc = mean_auc))
+}
+
+# Perform cross-validation with the GAM model and obtain mean evaluation metrics
+cv_results_model_unbalanced <- cv_gam_model_unbalanced(data, formula, k = 10)
+
+# Print the title for the output matrix
+cat("Model")
+
+# Print the mean evaluation metrics
+print(cv_results_model_unbalanced)
+```
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+# Function to perform cross-validation with a GAM model and return the mean evaluation metrics
+cv_gam_inter_unbalanced <- function(data, formula, k = 10) {
+  # Initialize variables to store evaluation metrics across all folds
+  accuracy <- numeric(k)
+  tpr <- numeric(k)
+  tnr <- numeric(k)
+  auc <- numeric(k)
+  
+  # Create cross-validation folds
+  folds <- createFolds(data$Personal.Loan, k = k)
+  
+  # For each fold
+  for (i in 1:k) {
+    # Extract training and test sets
+    train <- data[-folds[[i]], ]
+    test <- data[folds[[i]], ]
+    
+    # Train the GAM model on the training set
+    inter_model <- gam(formula, data = train, family = binomial)
+    
+    # Evaluate the model on the test set
+    predictions <- predict(inter_model, newdata = test, type = "response")
+    cm <- confusionMatrix(as.factor(ifelse(predictions > 0.5, 1, 0)), as.factor(test$Personal.Loan))
+    
+    # Calculate and store evaluation metrics for this fold
+    accuracy[i] <- cm$overall['Accuracy']
+    tpr[i] <- cm$table['1','1'] / sum(cm$table['1',])
+    tnr[i] <- cm$table['0','0'] / sum(cm$table['0',])
+    auc[i] <- roc(test$Personal.Loan, predictions)$auc
+  }
+  
+  # Calculate mean evaluation metrics across all folds
+  mean_accuracy <- mean(accuracy)
+  mean_tpr <- mean(tpr)
+  mean_tnr <- mean(tnr)
+  mean_auc <- mean(auc)
+  
+  # Return the mean evaluation metrics
+  return(c(mean_accuracy = mean_accuracy, mean_tpr = mean_tpr, mean_tnr = mean_tnr, mean_auc = mean_auc))
+}
+
+# Perform cross-validation with the interaction GAM model and obtain mean evaluation metrics
+cv_results_inter_unbalanced <- cv_gam_inter_unbalanced(data, formula, k = 10)
+
+# Print the title for the output matrix
+cat("Model with interactions")
+
+# Print the mean evaluation metrics
+print(cv_results_inter_unbalanced)
+
+```
+
+# Generalized Additive Models on Balanced Dataset
+
+We decided to balance our dataset through oversampling techniques. In this procedure, we balanced the dataset by increasing the representation of the minority class through replication of its instances. By doing so, we aimed to improve the model's sensitivity while maintaining overall predictive accuracy.
+```{r}
+#balancing original dataset with resempling
+set.seed(123)
+minority_data <- data[data$Personal.Loan == 1, ]
+majority_data <- data[data$Personal.Loan == 0, ]
+
+#Dataset balanced with simple oversampling
+data_oversampled = minority_data[sample(1:nrow(minority_data), size = nrow(majority_data), replace = TRUE), ] %>%
+  rbind(., majority_data)
+
+#Dataset balanced by replicating the subset of the less frequent class 10 times
+data_oversampled2 = rep(1:nrow(minority_data), each = 10) %>%
+  lapply(function(x) minority_data[x, ]) %>%
+  do.call(rbind, .) %>% rbind(., majority_data)
+```
+
+We repeated what we did in the first part with the new dataset starting with the model that include all variables.
+```{r}
+full_model_oversampled <- gam(Personal.Loan ~ s(Age) + s(Income) + s(CCAvg) + s(Mortgage) +
+                    Family + Education + Securities.Account + 
+                    CD.Account + Online + CreditCard , data = data_oversampled2, family = binomial)
+summary(full_model_oversampled)
+```
+
+Then, according to the summary, we decided not to use spline for Mortgage variable.
+```{r}
+model_oversampled <- gam(Personal.Loan ~ s(Age) + s(Income) + s(CCAvg) + Mortgage +
+                    Family + Education + Securities.Account + 
+                    CD.Account + Online + CreditCard , data = data_oversampled2, family = binomial)
+summary(model_oversampled)
+```
+
+Then, as before, we introduced interactions between Income and Family or Education.
+```{r}
+inter_model_oversampled <- gam(Personal.Loan ~ s(Age) + s(Income) + s(CCAvg) + Mortgage +
+                    Family + Education + Securities.Account + 
+                    CD.Account + Online + CreditCard + Income:Family + Income:Education , data = data_oversampled2, family = binomial)
+summary(inter_model_oversampled)
+```
+
+```{r}
+res_dev= c(full_model_oversampled$deviance, model_oversampled$deviance, inter_model_oversampled$deviance)
+as.matrix(AIC(full_model_oversampled, model_oversampled, inter_model_oversampled) %>% mutate(res_dev=res_dev))
+```
+
+To evaluate the predictive performance, we again implemented ten-fold cross-validation.
+
+```{r, message=FALSE, warning=FALSE}
+# Function to perform cross-validation with a GAM model and return the mean evaluation metrics
+cv_gam_full_oversampled <- function(data_oversampled2, formula, k = 10) {
+  # Initialize variables to store evaluation metrics across all folds
+  accuracy <- numeric(k)
+  tpr <- numeric(k)
+  tnr <- numeric(k)
+  auc <- numeric(k)
+  
+  # Create cross-validation folds
+  folds <- createFolds(data_oversampled2$Personal.Loan, k = k)
+  
+  # For each fold
+  for (i in 1:k) {
+    # Extract the training and test sets
+    train <- data_oversampled2[-folds[[i]], ]
+    test <- data_oversampled2[folds[[i]], ]
+    
+    # Train the GAM model on the training set
+    full_model_oversampled <- gam(formula, data = train, family = binomial)
+    
+    # Evaluate the model on the test set
+    predictions <- predict(full_model_oversampled, newdata = test, type = "response")
+    cm <- confusionMatrix(as.factor(ifelse(predictions > 0.5, 1, 0)), as.factor(test$Personal.Loan))
+    
+    # Calculate and store the evaluation metrics for this fold
+    accuracy[i] <- cm$overall['Accuracy']
+    tpr[i] <- cm$table['1','1'] / sum(cm$table['1',])
+    tnr[i] <- cm$table['0','0'] / sum(cm$table['0',])
+    auc[i] <- roc(test$Personal.Loan, predictions)$auc
+  }
+  
+  # Calculate the mean evaluation metrics across all folds
+  mean_accuracy <- mean(accuracy)
+  mean_tpr <- mean(tpr)
+  mean_tnr <- mean(tnr)
+  mean_auc <- mean(auc)
+  
+  # Return the mean evaluation metrics
+  return(c(mean_accuracy = mean_accuracy, mean_tpr = mean_tpr, mean_tnr = mean_tnr, mean_auc = mean_auc))
+}
+
+# Use the cv_gam_full_oversampled function to perform cross-validation with the GAM model and obtain the mean evaluation metrics
+cv_results_full_oversampled <- cv_gam_full_oversampled(data, formula, k = 10)
+
+# Print the title for the output matrix
+cat("Full Model")
+
+# Print the mean evaluation metrics
+print(cv_results_full_oversampled)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+# Function to perform cross-validation with a GAM model and return the mean evaluation metrics
+cv_gam_model_oversampled <- function(data_oversampled2, formula, k = 10) {
+  # Initialize variables to store evaluation metrics across all folds
+  accuracy <- numeric(k)
+  tpr <- numeric(k)
+  tnr <- numeric(k)
+  auc <- numeric(k)
+  
+  # Create cross-validation folds
+  folds <- createFolds(data_oversampled2$Personal.Loan, k = k)
+  
+  # For each fold
+  for (i in 1:k) {
+    # Extract the training and test sets
+    train <- data_oversampled2[-folds[[i]], ]
+    test <- data_oversampled2[folds[[i]], ]
+    
+    # Train the GAM model on the training set
+    model_oversampled <- gam(formula, data = train, family = binomial)
+    
+    # Evaluate the model on the test set
+    predictions <- predict(model_oversampled, newdata = test, type = "response")
+    cm <- confusionMatrix(as.factor(ifelse(predictions > 0.5, 1, 0)), as.factor(test$Personal.Loan))
+    
+    # Calculate and store the evaluation metrics for this fold
+    accuracy[i] <- cm$overall['Accuracy']
+    tpr[i] <- cm$table['1','1'] / sum(cm$table['1',])
+    tnr[i] <- cm$table['0','0'] / sum(cm$table['0',])
+    auc[i] <- roc(test$Personal.Loan, predictions)$auc
+  }
+  
+  # Calculate the mean evaluation metrics across all folds
+  mean_accuracy <- mean(accuracy)
+  mean_tpr <- mean(tpr)
+  mean_tnr <- mean(tnr)
+  mean_auc <- mean(auc)
+  
+  # Return the mean evaluation metrics
+  return(c(mean_accuracy = mean_accuracy, mean_tpr = mean_tpr, mean_tnr = mean_tnr, mean_auc = mean_auc))
+}
+
+# Use the cv_gam_model_oversampled function to perform cross-validation with the GAM model and obtain the mean evaluation metrics
+cv_results_model_oversampled <- cv_gam_model_oversampled(data, formula, k = 10)
+
+# Print the title for the output matrix
+cat("Model")
+
+# Print the mean evaluation metrics
+print(cv_results_model_oversampled)
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+# Function to perform cross-validation with a GAM model and return the mean evaluation metrics
+cv_gam_inter_oversampled <- function(data_oversampled2, formula, k = 10) {
+  # Initialize variables to store evaluation metrics across all folds
+  accuracy <- numeric(k)
+  tpr <- numeric(k)
+  tnr <- numeric(k)
+  auc <- numeric(k)
+  
+  # Create cross-validation folds
+  folds <- createFolds(data_oversampled2$Personal.Loan, k = k)
+  
+  # For each fold
+  for (i in 1:k) {
+    # Extract the training and test sets
+    train <- data_oversampled2[-folds[[i]], ]
+    test <- data_oversampled2[folds[[i]], ]
+    
+    # Train the GAM model on the training set
+    inter_model_oversampled <- gam(formula, data = train, family = binomial)
+    
+    # Evaluate the model on the test set
+    predictions <- predict(inter_model_oversampled, newdata = test, type = "response")
+    cm <- confusionMatrix(as.factor(ifelse(predictions > 0.5, 1, 0)), as.factor(test$Personal.Loan))
+    
+    # Calculate and store the evaluation metrics for this fold
+    accuracy[i] <- cm$overall['Accuracy']
+    tpr[i] <- cm$table['1','1'] / sum(cm$table['1',])
+    tnr[i] <- cm$table['0','0'] / sum(cm$table['0',])
+    auc[i] <- roc(test$Personal.Loan, predictions)$auc
+  }
+  
+  # Calculate the mean evaluation metrics across all folds
+  mean_accuracy <- mean(accuracy)
+  mean_tpr <- mean(tpr)
+  mean_tnr <- mean(tnr)
+  mean_auc <- mean(auc)
+  
+  # Return the mean evaluation metrics
+  return(c(mean_accuracy = mean_accuracy, mean_tpr = mean_tpr, mean_tnr = mean_tnr, mean_auc = mean_auc))
+}
+
+# Use the cv_gam_inter_oversampled function to perform cross-validation with the GAM model and obtain the mean evaluation metrics
+cv_results_inter_oversampled <- cv_gam_inter_oversampled(data, formula, k = 10)
+
+# Print the title for the output matrix
+cat("Model with interactions")
+
+# Print the mean evaluation metrics
+print(cv_results_inter_oversampled)
+```
+
+By using oversampling, we fixed the problem of imbalanced classes, making our models perform better than those trained on the original dataset. Although the oversampled model had slightly lower accuracy than the initial ones, it still showed strong predictive ability and balanced performance. In summary, our models trained on the oversampled data handled class imbalance well and remained competitive in predicting loan eligibility.
+
+In conclusion, our GAM models show promise in predicting whether an individual will join the last personal loan campaign promoted by the bank based on the given variables.
+
+\newpage
+
+# Support Vector Machine
+
+## Imbalanced case
+
+We then built an SVM model, with both a linear and a radial kernel. Like in the previous cases the model has been first tested on the imbalanced dataset and then on a balanced with oversampling one. The procedure for both the models, balanced and imbalanced is the same. 
+
+For the radial kernel model we first trained a single SVM radial model in order to tune the value of gamma and cost parameters. Using a 10-fold cross validation tuning function the results are the following: gamma=0.25 and cost = 10, we can note that the best value for the cost parameter is similar to the imbalance ratio, that hence is a good trade-off value between achieving a low training error and a low model complexity. Once these parameters have been set we implemented a 10-fold cross validation to train and test the model each time computing the performance indexes of interest. We then considered the mean value of each as estimator. 
+
+
+In the imbalanced case we divided the dataset in train and test data, trained both the linear kernel model and the radial one on the train data and then made the predictions. 
+For both the cases we built the confusion matrix to extract the TPR, the TNR and the Accuracy, we built the ROC curve and computed the AUC. 
+
+```{r, echo=FALSE}
+#Not balanced model
+set.seed(123)
+
+#before predicting with a 10-fold CV we tune on a single model the value for the gamma parameter, setting by default the value of cost equal to IR
+
+#Dividing test and train
+n <- nrow(data)
+train <- sample(n, 0.75*n)
+or_data_train <- data[train, ]
+data_test <- data[-train, ]
+IR = sum(data$Personal.Loan == 0) / sum(data$Personal.Loan == 1)
+
+#parameter tuning
+tune.out <- tune(svm, Personal.Loan ~ ., data = or_data_train, kernel = "radial",ranges = list(cost = c(1, IR, 100), gamma = c(0.25, 0.5, 1, 2)))
+gm <- as.numeric(tune.out$best.parameters["gamma"])
+
+#cross fold model
+
+auc.radial.vc <- c()
+auc.lin.vc <- c()
+tpr.radial.vc <- c()
+tnr.radial.vc <- c()
+tpr.lin.vc <- c()
+tnr.lin.vc <- c()
+acc.radial.vc <- c()
+acc.lin.vc <- c()
+
+# cv model
+
+for(i in 1:10){
+train <- sample(n, 0.75*n)
+data_train <- data[train, ]
+data_test <- data[-train, ]
+svm.linear.fit <- svm(Personal.Loan ~ ., data = data_train, kernel = "linear")
+svm.radial.fit <- svm(Personal.Loan ~ ., data = data_train, kernel = "radial", gamma = gm, cost = IR)
+svm.radial.pred <- predict(svm.radial.fit, newdata = data_test)
+svm.linear.pred <- predict(svm.linear.fit, newdata = data_test)
+cm.radial <- confusionMatrix(data = svm.radial.pred, reference = data_test$Personal.Loan, positive = "1")
+cm.linear <- confusionMatrix(data = svm.linear.pred, reference = data_test$Personal.Loan, positive = "1")
+auc.lin.vc[i] <- roc(data_test$Personal.Loan, predictor = as.numeric(svm.linear.pred), quiet = TRUE)$auc
+auc.radial.vc[i] <- roc(data_test$Personal.Loan, predictor = as.numeric(svm.radial.pred), quiet = TRUE)$auc
+acc.lin.vc[i] <- cm.linear$overall['Accuracy']
+acc.radial.vc[i] <- cm.radial$overall['Accuracy']
+tpr.lin.vc[i] <- cm.linear$table['1','1']/sum(cm.linear$table['1',])
+tpr.radial.vc[i] <- cm.radial$table['1','1']/sum(cm.radial$table['1',])
+tnr.lin.vc[i] <- cm.linear$table['0','0']/sum(cm.linear$table['0',])
+tnr.radial.vc[i] <- cm.radial$table['0','0']/sum(cm.radial$table['0',])
+}
+
+# Create a summary
+summary_matrix <- matrix(NA, nrow = 2, ncol = 4)
+
+# Fill in the values of the matrix
+row_names <- c("Linear", "Radial")
+col_names <- c("AUC", "Accuracy", "TPR", "TNR")
+rownames(summary_matrix) <- row_names
+colnames(summary_matrix) <- col_names
+summary_matrix[1, ] <- c(round(mean(auc.lin.vc), 2), round(mean(acc.lin.vc),2), round(mean(tpr.lin.vc),2), round(mean(tnr.lin.vc),2))
+summary_matrix[2, ] <- c(round(mean(auc.radial.vc),2), round(mean(acc.radial.vc),2), round(mean(tpr.radial.vc),2), round(mean(tnr.radial.vc),2))
+
+# Convert the matrix to a data frame
+svm_summary <- as.data.frame(summary_matrix)
+
+```
+
+In the following summary we present the result coming from the imbalanced dataset. We see that the model has good performances and as expected, the radial kernel model performs better than the linear one, with an AUC=0.92 .
+
+```{r}
+# Print the data frame
+print(svm_summary)
+```
+
+## Balanced case
+
+The same procedure has been done for the balanced case, with the only difference consisting in balancing for oversampling the train dataset before training the models. 
+
+```{r, echo=FALSE}
+#balanced model
+set.seed(123)
+
+#cross fold model
+
+bal.auc.radial.vc <- c()
+bal.auc.lin.vc <- c()
+bal.tpr.radial.vc <- c()
+bal.tnr.radial.vc <- c()
+bal.tpr.lin.vc <- c()
+bal.tnr.lin.vc <- c()
+bal.acc.radial.vc <- c()
+bal.acc.lin.vc <- c()
+
+# cv model
+
+for(i in 1:10){
+#dividing train and test
+train <- sample(n, 0.75*n)
+data_train_imb <- data[train, ]
+data_test <- data[-train, ]
+#balancing
+minority_data <- data_train_imb[data_train_imb$Personal.Loan == 1, ]
+majority_data <- data_train_imb[data_train_imb$Personal.Loan == 0, ]
+data_train = minority_data[sample(1:nrow(minority_data), size = nrow(majority_data), replace = TRUE), ] %>%
+  rbind(., majority_data)
+#balanced models
+bal.svm.linear.fit <- svm(Personal.Loan ~ ., data = data_train, kernel = "linear")
+bal.svm.radial.fit <- svm(Personal.Loan ~ ., data = data_train, kernel = "radial", gamma = gm, cost = IR)
+bal.svm.radial.pred <- predict(bal.svm.radial.fit, newdata = data_test)
+bal.svm.linear.pred <- predict(bal.svm.linear.fit, newdata = data_test)
+#computing the performance indexes
+
+#radial
+bal.cm.radial <- confusionMatrix(data = bal.svm.radial.pred, reference = data_test$Personal.Loan, positive = "1")
+bal.auc.radial.vc[i] <- roc(data_test$Personal.Loan, predictor = as.numeric(bal.svm.radial.pred), quiet = TRUE)$auc
+bal.acc.radial.vc[i] <- bal.cm.radial$overall['Accuracy']
+bal.tpr.radial.vc[i] <- bal.cm.radial$table['1','1']/sum(bal.cm.radial$table['1',])
+bal.tnr.radial.vc[i] <- bal.cm.radial$table['0','0']/sum(bal.cm.radial$table['0',])
+
+#linear
+bal.cm.linear <- confusionMatrix(data = bal.svm.linear.pred, reference = data_test$Personal.Loan, positive = "1")
+bal.auc.lin.vc[i] <- roc(data_test$Personal.Loan, predictor = as.numeric(bal.svm.linear.pred), quiet = TRUE)$auc
+bal.acc.lin.vc[i] <- bal.cm.linear$overall['Accuracy']
+bal.tpr.lin.vc[i] <- bal.cm.linear$table['1','1']/sum(bal.cm.linear$table['1',])
+bal.tnr.lin.vc[i] <- bal.cm.linear$table['0','0']/sum(bal.cm.linear$table['0',])
+
+}
+
+# Create a summary
+bal.summary_matrix <- matrix(NA, nrow = 2, ncol = 4)
+
+# Fill in the values of the matrix
+row_names <- c("Linear", "Radial")
+col_names <- c("AUC", "Accuracy", "TPR", "TNR")
+rownames(bal.summary_matrix) <- row_names
+colnames(bal.summary_matrix) <- col_names
+bal.summary_matrix[1, ] <- c(round(mean(bal.auc.lin.vc), 2), round(mean(bal.acc.lin.vc),2), round(mean(bal.tpr.lin.vc),2), round(mean(bal.tnr.lin.vc),2))
+bal.summary_matrix[2, ] <- c(round(mean(bal.auc.radial.vc),2), round(mean(bal.acc.radial.vc),2), round(mean(bal.tpr.radial.vc),2), round(mean(bal.tnr.radial.vc),2))
+
+# Convert the matrix to a data frame
+bal.svm_summary <- as.data.frame(bal.summary_matrix)
+
+```
+
+We now show the summary of the balanced case.
+
+```{r}
+# Print the data frame
+print(bal.svm_summary)
+```
+
+The resulting AUC is 0.93. We can note that the performances do not improve, and that the TPR for the linear kernel model falls at a lower value with respect to the imbalanced case. The reason for this fall could be due to a higher number of data out of the separating hyperplane. Indeed having less data, the loss function of the SVM model is able to penalize the data that cannot be separated and then generate a plan that better separates the remaining data. When increasing these data, the penalization could not be able to perform as the imbalanced case and then the resulting plane divides the data in a worse way such that TPR falls to TPR=0.5.  We also tried to use oversampling methods that generate new data, not only using replacement of the existing data. With this aim we use the ROSE method, but the results are similar, as demonstration that increasing the number of points lead to an increase of non separable points hence the resulting hyperplane is worse than the one coming from the imbalanced case. 
+
+```{r, echo=FALSE}
+#balanced model
+set.seed(123)
+
+#cross fold model
+
+ros.auc.radial.vc <- c()
+ros.auc.lin.vc <- c()
+ros.tpr.radial.vc <- c()
+ros.tnr.radial.vc <- c()
+ros.tpr.lin.vc <- c()
+ros.tnr.lin.vc <- c()
+ros.acc.radial.vc <- c()
+ros.acc.lin.vc <- c()
+
+# cv model
+
+for(i in 1:10){
+#dividing train and test
+train <- sample(n, 0.75*n)
+data_train_imb <- data[train, ]
+data_test <- data[-train, ]
+
+#balancing
+ros_data <-  ROSE(Personal.Loan ~ ., data = data_train_imb, seed = 123)
+data_train <- ros_data$data
+
+#balanced models
+ros.svm.linear.fit <- svm(Personal.Loan ~ ., data = data_train, kernel = "linear")
+ros.svm.radial.fit <- svm(Personal.Loan ~ ., data = data_train, kernel = "radial", gamma = gm, cost = IR)
+ros.svm.radial.pred <- predict(ros.svm.radial.fit, newdata = data_test)
+ros.svm.linear.pred <- predict(ros.svm.linear.fit, newdata = data_test)
+
+#computing the performance indexes
+
+#radial
+ros.cm.radial <- confusionMatrix(data = ros.svm.radial.pred, reference = data_test$Personal.Loan, positive = "1")
+ros.auc.radial.vc[i] <- roc(data_test$Personal.Loan, predictor = as.numeric(ros.svm.radial.pred), quiet = TRUE)$auc
+ros.acc.radial.vc[i] <- ros.cm.radial$overall['Accuracy']
+ros.tpr.radial.vc[i] <- ros.cm.radial$table['1','1']/sum(ros.cm.radial$table['1',])
+ros.tnr.radial.vc[i] <- ros.cm.radial$table['0','0']/sum(ros.cm.radial$table['0',])
+
+#linear
+ros.cm.linear <- confusionMatrix(data = ros.svm.linear.pred, reference = data_test$Personal.Loan, positive = "1")
+ros.auc.lin.vc[i] <- roc(data_test$Personal.Loan, predictor = as.numeric(ros.svm.linear.pred), quiet = TRUE)$auc
+ros.acc.lin.vc[i] <- ros.cm.linear$overall['Accuracy']
+ros.tpr.lin.vc[i] <- ros.cm.linear$table['1','1']/sum(ros.cm.linear$table['1',])
+ros.tnr.lin.vc[i] <- ros.cm.linear$table['0','0']/sum(ros.cm.linear$table['0',])
+
+}
+
+# Create a summary
+ros.summary_matrix <- matrix(NA, nrow = 2, ncol = 4)
+
+# Fill in the values of the matrix
+row_names <- c("Linear", "Radial")
+col_names <- c("AUC", "Accuracy", "TPR", "TNR")
+rownames(ros.summary_matrix) <- row_names
+colnames(ros.summary_matrix) <- col_names
+ros.summary_matrix[1, ] <- c(round(mean(ros.auc.lin.vc), 2), round(mean(ros.acc.lin.vc),2), round(mean(ros.tpr.lin.vc),2), round(mean(ros.tnr.lin.vc),2))
+ros.summary_matrix[2, ] <- c(round(mean(ros.auc.radial.vc),2), round(mean(ros.acc.radial.vc),2), round(mean(ros.tpr.radial.vc),2), round(mean(ros.tnr.radial.vc),2))
+
+# Convert the matrix to a data frame
+ros.svm_summary <- as.data.frame(ros.summary_matrix)
+
+
+```
+
+To be thorough we show the results obtained after applying the ROSE method. 
+
+```{r}
+# Print the data frame
+print(ros.svm_summary)
+```
+
+To conclude we can say that according to the Occam’s Razor principle we should prefer the imbalanced model that requires a lower computational effort. 
+
+\newpage
+
+# Random forest
+
+We then built a Random Forest model with a 10-fold cross-validation in order to better identify the best number of variable to consider for each tree. We tested the model with both the unbalanced and balanced datasets and to evaluate their performances we divided the data in training and testing sets before carry out the balancing.
+
+```{r, message=FALSE, echo=FALSE}
+library(randomForest)
+library(datasets)
+library(caret)
+library(ROCR)
+set.seed(123)
+```
+
+```{r}
+#Partitioning data in training and test datasets
+ind <- sample(2, nrow(data), replace = TRUE, prob = c(0.7, 0.3))
+train <- data[ind==1,]
+test <- data[ind==2,]
+
+#Dividing training dataset by the responce in order to perform oversampling
+
+minority_train_data <- train[train$Personal.Loan == 1, ]
+majority_train_data <- train[train$Personal.Loan == 0, ]
+```
+
+## Unbalanced dataset
+
+The cross-validation pointed out that the best number of variable to consider for each random forest, based on the training on the unbalanced dataset, is 7.
+
+```{r}
+#10-fold CV model evaluation with the unbalanced dataset
+train_control <- trainControl(method = "cv", number = 10)
+rf0 <- train(Personal.Loan~., data = train, 
+               method = "rf",
+               trControl = train_control)
+
+#Model description and confusion matrix based upon OOB samples
+print(rf0)
+```
+
+From the confusion matrix evaluated on the test set its worth noticing the TPR (sensitivity) of 99.92% and the TNR (specificity) of 88.48%.
+
+```{r}
+#Model test
+p0 <- predict(rf0, test)
+
+#Confusion matrix and statistics for the model assessment
+#Sensitivity -> TPR
+#Specificity -> TNR
+confusionMatrix(p0, test$Personal.Loan)
+```
+
+The resulting AUC for the unbalanced dataset is 94.20%.
+
+```{r}
+#AUC
+pr0 <- prediction(as.numeric(p0), test$Personal.Loan)
+auc0 <- performance(pr0, measure = "auc")@y.values[[1]]
+print(paste("AUC : ", auc0))
+```
+Finally its possible to look at the ROC curve and the variable importance plot.
+
+```{r}
+
+#ROC curve plot
+roc0 <- performance(pr0,"tpr", "fpr")
+plot(roc0, main = "ROC curve")
+
+#Variable importance plot
+ggplot2::ggplot(varImp(rf0, useModel = FALSE))+ggtitle("Variable importance")
+
+```
+
+## Balanced dataset
+
+For the balanced dataset too the cross-validation pointed out that the best number of variable to consider for each random forest is 7.
+
+```{r}
+#Balancing dataset with simple oversampling
+train_data_oversampled = minority_train_data[sample(1:nrow(minority_train_data), size = nrow(majority_train_data), replace = TRUE), ] %>%
+  rbind(., majority_train_data)
+
+#10-fold CV model evaluation
+rf1 <- train(Personal.Loan~., data = train_data_oversampled, 
+               method = "rf",
+               trControl = train_control)
+
+#Model description and confusion matrix based upon OOB samples
+print(rf1)
+```
+
+From the confusion matrix evaluated on the test set its worth noticing the TPR (sensitivity) of 99.55% and the TNR (specificity) of 92.73%.
+
+```{r}
+#Model test
+p1 <- predict(rf1, test)
+
+#Confusion matrix and statistics for the model assessment
+#Sensitivity -> TPR
+#Specificity -> TNR
+confusionMatrix(p1, test$Personal.Loan)
+```
+
+The resulting AUC for the balanced dataset is 96.14%.
+
+```{r}
+#AUC
+pr1 <- prediction(as.numeric(p1), test$Personal.Loan)
+auc1 <- performance(pr1, measure = "auc")@y.values[[1]]
+print(paste("AUC : ", auc1))
+
+```
+
+Finally its possible to look at the ROC curve and the variable importance plot for the balanced dataset too.
+
+```{r}
+#ROC curve plot
+roc1 <- performance(pr1,"tpr", "fpr")
+plot(roc1, main = "ROC curve")
+
+#Variable importance plot
+ggplot2::ggplot(varImp(rf1, useModel = FALSE))+ggtitle("Variable importance")
+```
+In conclusion the balanced dataset performed slightly better than the unbalanced one in terms of AUC; the variable importance didn't change significantly among the datasets.
+
+
+# Bayesian Approach
+
+
+The last model we analyzed is a Bayesian logistic regression model: the coefficients of the variables were studied in a Bayesian approach. 
+
+After trying another package (UPG), we opted to use the brms package: Bayesian Multilevel Models using Stan.
+
+Since with many data the Bayesian model is very similar to the classic glm one, we tried to balance the dataset through undersampling.
+
+```{r, message=FALSE, warning=FALSE}
+# Identify indices of majority and minority classes
+
+data_train <- data[1:4500,]
+data_test <- data[4501:5000,]
+
+majority_indices <- which(data_train$Personal.Loan == 0)
+minority_indices <- which(data_train$Personal.Loan == 1)
+
+# Count the number of observations in each class
+num_majority <- length(majority_indices)
+num_minority <- length(minority_indices)
+
+# Undersample the majority class
+undersampled_indices <- sample(majority_indices, size = 3*num_minority)
+
+# Combine indices of minority and undersampled majority class
+balanced_indices <- c(undersampled_indices, minority_indices)
+
+# Create the balanced dataset
+balanced_data_train <- data[balanced_indices, ]
+
+shuffled_indices <- sample(nrow(balanced_data_train))
+
+# Use the sampled indices to reorder the rows
+balanced_data_train <- balanced_data_train[shuffled_indices, ]
+```
+
+
+
+```{r}
+# Glm model to compare with the Bayesian
+train_model = glm(Personal.Loan ~ Income + Family + CCAvg + Education + Securities.Account + 
+CD.Account + Online + CreditCard + Mortgage, data = balanced_data_train, family = binomial)
+summary(train_model)
+```
+
+
+
+```{r}
+predicted_probabilities <- predict(train_model, newdata = data_test)
+# Convert probabilities to binary predictions
+threshold <- 0.2
+predicted_labels <- ifelse(predicted_probabilities > threshold, 1, 0)
+y_test <- data_test$Personal.Loan
+
+# Calculate correct predictions
+correct_predictions <- sum(predicted_labels == y_test)
+print(paste("Assessment for GLM."))
+print(paste("Correct Predictions:", correct_predictions))
+
+# Calculate accuracy
+accuracy <- correct_predictions / length(y_test)
+print(paste("Accuracy:", accuracy))
+
+# Calculate true positives
+true_positives <- sum(predicted_labels == 1 & y_test == 1)
+
+# Calculate false negatives
+false_negatives <- sum(predicted_labels == 0 & y_test == 1)
+
+# Calculate true positive rate
+true_positive_rate <- true_positives / (true_positives + false_negatives)
+print(paste("True Positive Rate:", true_positive_rate))
+
+# Calculate AUC
+roc_curve <- roc(y_test, predicted_probabilities)
+auc_value <- auc(roc_curve)
+print(paste("AUC:", auc_value))
+
+# Dummy accuracy
+dummy_accuracy <- sum(y_test == 0) / length(y_test)
+print(paste("Dummy Accuracy:", dummy_accuracy))
+
+
+```
+
+Let's delve into the Bayesian model.
+Since we are facing a binary classification problem, the likelihood is:
+
+$$
+L(\beta | y, X ) = \Pi_i p(y_i | X_i, \beta)
+$$
+
+where 
+$$
+p(y_i | X_i, \beta) = \frac{1}{1+e^{-X_i\beta}}
+$$
+
+One of the initial challenges encountered in this modeling process is setting the prior distributions for the coefficients, it forced us to have an idea about the underlying system that produces the outcome variable Personal.Loan. 
+
+Since we don't have domain expertise and no expert opinion available, we did some research and developed our own opinion on the way the variables may influence the Personal.Loan variable.
+
+It is interesting to note that, reasonably, without setting the prior we obtain a model equal to the one we get with the function glm().
+
+```{r, message=FALSE, warning=FALSE}
+capture.output({
+
+# Define informative priors for each coefficient
+ prior_spec <- c(
+  # We don't set a Prior for the intercept, Age, CreditCard and Online,
+  # since we don't have an idea about them
+  # A person with high income has probably a stable financial situation and 
+  # can ask for a loan for long-term life projects
+  prior(normal(0.3, 0.3), class = "b", coef = "Income"),  
+  # we expect that a family of 2 people doesn't need a loan
+  prior(normal(-1, 0.5), class = "b", coef = "Family2"),
+  # a family with a child may need a loan, the same for 2 children
+    prior(normal(1, 0.5), class = "b", coef = "Family3"),
+    prior(normal(1.5, 0.5), class = "b", coef = "Family4"),  
+  # Individuals with higher credit card usage may need money, so they could ask for a loan
+  prior(normal(0.5, 0.5), class = "b", coef = "CCAvg"),
+  # People with higher education more likely may take the "risk" of accepting a loan
+  prior(normal(1, 0.5), class = "b", coef = "Education2"),
+  prior(normal(2, 0.5), class = "b", coef = "Education3"),
+  # A person with securities or cd account may need money and 
+  # can accept a loan because he knows he can repay it
+  # securities account, investments account
+  prior(normal(0.5, 0.5), class = "b", coef = "Securities.Account1"), 
+  # certificate of deposit account, which is a type of savings account 
+  # with a fixed term and interest rate
+  prior(normal(0.5, 0.5), class = "b", coef = "CD.Account1"), 
+  # if you have a mortgage active, you may not want to ask for a loan
+  prior(normal(-1, 0.3), class = "b", coef = "Mortgage")
+)
+
+# Fit the Bayesian logistic regression model with the specified priors
+
+  model <- brm(
+  formula = Personal.Loan ~ Age + Income + Family + CCAvg + Education + Mortgage 
+  + Securities.Account + CD.Account + Online + CreditCard,
+  data = balanced_data_train,
+  family = bernoulli(link = "logit"),
+  prior = prior_spec,
+  chains = 4, # controls parallel chains for convergence diagnostics.
+  iter = 2000, # determines the total number of iterations per chain.
+  warmup = 1000 # sets the number of warm-up iterations discarded before collecting posterior samples.
+)
+
+}, file = "/dev/null")
+
+```
+
+```{r}
+summary_model <- summary(model)
+summary_model
+```
+
+We can see that the sign of the coefficients stay the same, meaning that our prior may be somehow correct.
+
+We can also extract the WAIC coefficient, similar to the AIC: lower values indicate better model performance. 
+
+$$
+WAIC=-2(log.likelihood-pWAIC)
+$$
+
+Where pWAIC is the effective number of parameters, also known as the penalty term:
+
+$$
+pWAIC = \Sigma_i Var(log.likelihood_i)
+$$
+
+```{r}
+waic(model)
+```
+
+
+We use function hypothesis() of the brms package to test the significance of the predictors.
+
+```{r}
+# Hypothesis testing for coefficient significance
+# Bayesian model struggles with Age = 0, better test > or <
+hypothesis_testing_greater <- hypothesis(model, c("Age > 0", "Income > 0", "CCAvg > 0", "Mortgage > 0",
+                                           "Securities.Account1 > 0", "CD.Account1 > 0", "Online1 > 0", "CreditCard1 > 0", 
+                                           "Family2 > 0", "Family3 > 0", "Family4 > 0", "Education2 > 0", "Education3 > 0"),
+                                 scope = "standard", seed = NULL, alpha = 0.05)
+
+hypothesis_testing_less <- hypothesis(model, c("Age < 0", "Income < 0", "CCAvg < 0", "Mortgage < 0",
+                                          "Securities.Account1 < 0", "CD.Account1 < 0", "Online1 < 0", "CreditCard1 < 0", 
+                                          "Family2 < 0", "Family3 < 0", "Family4 < 0", "Education2 < 0", "Education3 < 0"),  
+                                 scope = "standard", seed = NULL, alpha = 0.05)
+hypothesis_testing_greater
+hypothesis_testing_less
+```
+
+
+We can state that Age, Mortgage and Securities.Account are not significant.
+
+We can also plot credibility intervals for the coefficients. 
+
+```{r}
+par(mar = c(5, 5, 4, 2), cex.axis = 0.5)
+
+# Extract coefficients and credible intervals
+# Exclude the intercept coefficient to visualize better the results
+coefficients <- summary_model$fixed[-1, "Estimate"]   
+lower_ci <- summary_model$fixed[-1, "l-95% CI"]
+upper_ci <- summary_model$fixed[-1, "u-95% CI"]
+
+# Plot coefficients with confidence intervals
+plot(x = 1:length(coefficients), y = coefficients, type = "p", cex = 0.5, 
+     ylim = range(c(lower_ci, upper_ci)),
+     main = "Coefficients with 95% CIs", xlab = "", ylab = "",
+     axes = FALSE, col = "blue")
+     axis(side = 1, at = 1:length(coefficients), 
+     labels = rownames(summary_model$fixed)[-1], las = 2)
+axis(side = 2)
+box()
+
+# Add vertical lines for confidence intervals
+segments(x0 = 1:length(coefficients), y0 = lower_ci, 
+         x1 = 1:length(coefficients), y1 = upper_ci, col = "red", lwd = 2)
+abline(h = 0, col = "black")
+
+
+```
+
+
+```{r}
+# Assessing the model
+# Extracting the response variable for the test data
+y_test <- data_test$Personal.Loan
+
+X_test <- data_test[, !(names(data_test) %in% c("Personal.Loan"))]
+
+# Make predictions on the test data
+posterior_predictions_test <- posterior_predict(model, newdata = X_test)
+  
+# Convert predictions to probabilities
+predicted_probabilities <- apply(posterior_predictions_test, 2, mean)
+  
+# Convert probabilities to binary predictions
+threshold <- 0.2
+predicted_labels <- ifelse(predicted_probabilities > threshold, 1, 0)
+
+# Calculate correct predictions
+correct_predictions <- sum(predicted_labels == y_test)
+print(paste("Assessment for Bayesian GLM."))
+print(paste("Correct Predictions:", correct_predictions))
+
+# Calculate accuracy
+accuracy <- correct_predictions / length(y_test)
+print(paste("Accuracy:", accuracy))
+
+# Calculate true positives
+true_positives <- sum(predicted_labels == 1 & y_test == 1)
+
+# Calculate false negatives
+false_negatives <- sum(predicted_labels == 0 & y_test == 1)
+
+# Calculate true positive rate
+true_positive_rate <- true_positives / (true_positives + false_negatives)
+print(paste("True Positive Rate:", true_positive_rate))
+
+# Calculate AUC
+roc_curve <- roc(y_test, predicted_probabilities)
+auc_value <- auc(roc_curve)
+print(paste("AUC:", auc_value))
+
+# Dummy accuracy
+dummy_accuracy <- sum(y_test == 0) / length(y_test)
+print(paste("Dummy Accuracy:", dummy_accuracy))
+
+```
+The AUC, which is the coefficient we choose to compare the models, is sligthly lower than the one of the Glm model.
+
+We also tried a 5-fold CV to compare the Bayesian and the classic Glm model, under-sampling on the train set, we got similar results, but the classic model is still better: Average AUC (glm): 0.963722250099581, Average AUC (brm): 0.958610378527511.
+
+
+About the significance of the coefficients, we try to fit another model with less variables and compare the WAICs.
+
+Let's try to modify the model cutting some variables and modify the priors (Mortgage, Age, Securities.Account the coefficient estimate is very close to 0 and the C.I. is very small) and computing again the WAIC.
+
+
+```{r, message=FALSE, warning=FALSE}
+capture.output({
+# Fit the Bayesian logistic regression model with the specified prior
+# Define informative priors for each coefficient
+prior_spec1 <- c(
+  prior(normal(0.3, 0.3), class = "b", coef = "Income"),
+  prior(normal(-1, 0.5), class = "b", coef = "Family2"),
+  prior(normal(1, 0.5), class = "b", coef = "Family3"),
+  prior(normal(1.5, 0.5), class = "b", coef = "Family4"),  
+  prior(normal(0.5, 0.5), class = "b", coef = "CCAvg"),
+  prior(normal(1, 0.5), class = "b", coef = "Education2"),
+  prior(normal(2, 0.5), class = "b", coef = "Education3"),
+  prior(normal(0.5, 0.5), class = "b", coef = "CD.Account1")
+)
+# Fit the Bayesian logistic regression model with the specified priors
+model1 <- brm(
+  formula = Personal.Loan ~  Income + Family + CCAvg + Education + 
+    CD.Account + Online + CreditCard,
+  data = balanced_data_train,
+  family = bernoulli(link = "logit"),
+  prior = prior_spec1,
+  chains = 4, # controls parallel chains for convergence diagnostics.
+  iter = 2000, # determines the total number of iterations per chain.
+  warmup = 1000 # sets the number of warm-up iterations discarded before collecting posterior samples.
+)
+
+}, file = "/dev/null")
+```
+
+
+```{r}
+summary_model1 <- summary(model1)
+summary_model1
+```
+```{r}
+waic(model1)
+```
+It is interesting to note that we get a lower WAIC, then we choose to take the reduced model.
+Let's assess it.
+
+
+```{r}
+# Extracting the response variable for the test data
+y_test <- data_test$Personal.Loan
+
+X_test <- data_test[, !(names(data_test) %in% c("Personal.Loan"))]
+
+# Make predictions on the test data
+posterior_predictions_test <- posterior_predict(model1, newdata = X_test)
+  
+# Convert predictions to probabilities
+predicted_probabilities <- apply(posterior_predictions_test, 2, mean) # with median is much worse
+  
+# Convert probabilities to binary predictions (0 or 1)
+threshold <- 0.2
+predicted_labels <- ifelse(predicted_probabilities > threshold, 1, 0)
+
+# Calculate correct predictions
+correct_predictions <- sum(predicted_labels == y_test)
+print(paste("Total Predictions for data1_test Bayesian GLM."))
+print(paste("Correct Predictions:", correct_predictions))
+
+# Calculate accuracy
+accuracy <- correct_predictions / length(y_test)
+print(paste("Accuracy:", accuracy))
+
+# Calculate true positives
+true_positives <- sum(predicted_labels == 1 & y_test == 1)
+
+# Calculate false negatives
+false_negatives <- sum(predicted_labels == 0 & y_test == 1)
+
+# Calculate true positive rate
+true_positive_rate <- true_positives / (true_positives + false_negatives)
+print(paste("True Positive Rate:", true_positive_rate))
+
+# Calculate AUC
+roc_curve <- roc(y_test, predicted_probabilities)
+auc_value <- auc(roc_curve)
+print(paste("AUC:", auc_value))
+
+# Dummy accuracy
+dummy_accuracy <- sum(y_test == 0) / length(y_test)
+print(paste("Dummy Accuracy:", dummy_accuracy))
+```
+
+
+
