@@ -1655,6 +1655,7 @@ print(paste("Dummy Accuracy:", dummy_accuracy))
 
 We can see that the reduced model has a slightly better AUC than the full model, our choice to drop them was correct.
 
+\newpage
 
 
 
