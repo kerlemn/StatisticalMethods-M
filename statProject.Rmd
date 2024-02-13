@@ -1657,8 +1657,9 @@ We can see that the reduced model has a slightly better AUC than the full model,
 
 
 
+\newpage
 
-#RESULTS AND CONCLUSIONS
+# RESULTS AND CONCLUSIONS
 
 | Family                       | Model             | Unbalanced |         |         |         | Balanced |         |         |         |
 |--------|--------|--------|--------|--------|--------|--------|--------|--------|--------|
@@ -1673,8 +1674,8 @@ We can see that the reduced model has a slightly better AUC than the full model,
 | SVM                          | Linear kernel     | 0.96000    | 0.91000 | 0.96000 | 0.81000 | 0.91000  | 0.51000 | 0.99000 | 0.90000 |
 |                              | Radial kernel     | 0.98000    | 0.96000 | 0.98000 | 0.92000 | 0.98000  | 0.91000 | 0.99000 | 0.93000 |
 | Random forest                | Mtry = 7          | 0.98660    | 0.99920 | 0.88480 | 0.94204 | 0.98790  | 0.99550 | 0.92730 | 0.96136 |
-| Bayesian logistic regression | Full model        |            |         |         |         | 0.85600  | 0.91176 | 0.89241 | 0.94770 |
-|                              | Restricted model  |            |         |         |         | 0.86000  | 0.93753 | 0.91176 | 0.94887 |
+| Bayesian logistic regression | Full model        |            |         |         |         | 0.95861  | 0.91176 | 0.89241 | 0.94770 |
+|                              | Restricted model  |            |         |         |         |   | 0.93753 | 0.91176 | 0.94887 |
 
 By looking at the global results we can deduce that the best model in terms of AUC and accuracy is the GAM, in particular the interaction model, followed by the logistic regression models.
 In conclusion, even though we had to analyze an unbalanced dataset, multiple tools and techniques have allowed us to obtain successful results with all the five models in which the dataset was analyzed.
