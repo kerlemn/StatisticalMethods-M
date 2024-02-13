@@ -1275,15 +1275,16 @@ ggplot2::ggplot(varImp(rf1, useModel = FALSE))+ggtitle("Variable importance")
 ```
 In conclusion the balanced dataset performed slightly better than the unbalanced one in terms of AUC; the variable importance didn't change significantly among the datasets.
 
+\newpage
 
-# Bayesian Approach
+# A Bayesian Approach
 
 
 The last model we analyzed is a Bayesian logistic regression model: the coefficients of the variables were studied in a Bayesian approach. 
 
 After trying another package (UPG), we opted to use the brms package: Bayesian Multilevel Models using Stan.
 
-Since with many data the Bayesian model is very similar to the classic glm one, we tried to balance the dataset through undersampling.
+Since with many data the Bayesian model is very similar to the classic logistic regression one, we tried to balance the dataset through undersampling.
 
 ```{r, message=FALSE, warning=FALSE}
 data_train <- data[1:4500,]
@@ -1306,7 +1307,7 @@ balanced_data_train <- balanced_data_train[shuffled_indices, ]
 
 
 ```{r}
-# Glm model to compare with the Bayesian
+# Glm model to compare with the Bayesian one
 train_model = glm(Personal.Loan ~ Income + Family + CCAvg + Education + Securities.Account + 
 CD.Account + Online + CreditCard + Mortgage, data = balanced_data_train, family = binomial)
 summary(train_model)
@@ -1362,9 +1363,7 @@ $$
 p(y_i | X_i, \beta) = \frac{1}{1+e^{-X_i\beta}}
 $$
 
-One of the initial challenges encountered in this modeling process is setting the prior distributions for the coefficients, it forced us to have an idea about the underlying system that produces the outcome variable Personal.Loan. 
-
-Since we don't have domain expertise and no expert opinion available, we did some research and developed our own opinion on the way the variables may influence the Personal.Loan variable.
+One of the initial challenges encountered in this modeling process is setting the prior distributions for the coefficients: it forced us to develop our own idea about the underlying system that produces the outcome variable Personal.Loan.
 
 It is interesting to note that, reasonably, without setting the prior we obtain a model equal to the one we get with the function glm().
 
@@ -1457,10 +1456,9 @@ hypothesis_testing_greater
 hypothesis_testing_less
 ```
 
+The Posterior Probability is the posterior probability that the hypothesis is true, then we can state that Age, Mortgage and Securities.Account are not significant.
 
-We can state that Age, Mortgage and Securities.Account are not significant.
-
-We can also plot credibility intervals for the coefficients. 
+We can also plot credibility intervals for the coefficients.
 
 ```{r, echo=FALSE}
 par(mar = c(5, 5, 4, 2), cex.axis = 0.5)
@@ -1538,7 +1536,7 @@ We also tried a 5-fold CV to compare the Bayesian and the classic Glm model, und
 
 About the significance of the coefficients, we try to fit another model with less variables and compare the WAICs.
 
-Let's try to modify the model cutting some variables and modify the priors (Mortgage, Age, Securities.Account the coefficient estimate is very close to 0 and the C.I. is very small) and computing again the WAIC.
+Let's try to modify the model cutting the variables that are not significant: Mortgage, Age, Securities.Accoun and compute again the WAIC.
 
 
 ```{r, message=FALSE, warning=FALSE}
@@ -1578,9 +1576,9 @@ summary_model1
 ```{r, echo=FALSE}
 waic(model1)
 ```
-It is interesting to note that we get a lower WAIC, then we choose to take the reduced model.
-Let's assess it.
+It is interesting to note that we get a lower WAIC, then we choose to take the reduced model and the variables we dropped are actually not significant.
 
+Let's assess it.
 
 ```{r, echo=FALSE}
 # Extracting the response variable for the test data
@@ -1627,5 +1625,5 @@ dummy_accuracy <- sum(y_test == 0) / length(y_test)
 print(paste("Dummy Accuracy:", dummy_accuracy))
 ```
 
-
+We can see that the reduced model has a slightly better AUC than the full model, our choice to drop them was correct.
 
