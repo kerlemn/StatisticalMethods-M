@@ -1386,17 +1386,17 @@ Let's delve into the Bayesian model.
 Since we are facing a binary classification problem, the likelihood is:
 
 $$
-L(\beta | X,y ) = \Pi_i p(y_i | X_i, \beta)
+L(X,y | \beta ) = \Pi_i p(X_i | \beta)^{y_i} * (1- p(X_i | \beta))^{1-y_i}
 $$
 
 where 
 $$
-p(y_i | X_i, \beta) = \frac{1}{1+e^{-X_i\beta}}
+p(X_i | \beta) = \frac{1}{1+e^{-X_i\beta}}
 $$
 
 Our posterior will be 
 $$
-\pi(\beta|X,y) \propto L(\beta | X,y ) \pi(\beta)
+\pi(\beta|X,y) \propto L(X,y| \beta ) \pi(\beta)
 $$
 
 
@@ -1655,7 +1655,6 @@ print(paste("Dummy Accuracy:", dummy_accuracy))
 
 We can see that the reduced model has a slightly better AUC than the full model, our choice to drop them was correct.
 
-\newpage
 
 
 
@@ -1679,4 +1678,3 @@ We can see that the reduced model has a slightly better AUC than the full model,
 
 By looking at the global results we can deduce that the best model in terms of AUC and accuracy is the GAM, in particular the interaction model, followed by the logistic regression models.
 In conclusion, even though we had to analyze an unbalanced dataset, multiple tools and techniques have allowed us to obtain successful results with all the five models in which the dataset was analyzed.
-
