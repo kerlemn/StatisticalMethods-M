@@ -216,7 +216,7 @@ summary(inter_model)
 ```
 
 
-The summary show that the effect of *Income* loan acceptance is not uniform across all levels of *Education* and *Family*.
+The summary show that the effect of *Income* on loan acceptance is not uniform across all levels of *Education* and *Family*.
 
 \newpage
 
