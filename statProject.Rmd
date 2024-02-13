@@ -216,7 +216,7 @@ summary(inter_model)
 ```
 
 
-The summary show that the effect of *Income* loan acceptance is not uniform across all levels of *Education* and *Family*. After adding interaction terms some of the coefficients became very large so later we tried a Ridge regression on the data.
+The summary show that the effect of *Income* loan acceptance is not uniform across all levels of *Education* and *Family*.
 
 \newpage
 
@@ -235,7 +235,7 @@ as.matrix(AIC(full_model, model, inter_model) %>% mutate(res_dev = res_dev))
 
 \newpage
 
-Given the observation of notably high coefficients in the model that incorporated interaction terms, we used the Variance Inflation Factor (VIF) analysis to check the presence of multicollinearity among the independent variables. 
+Given the observation of notably high coefficients and standard errors in the model that incorporated interaction terms, we used the Variance Inflation Factor (VIF) analysis to check the presence of multicollinearity among the independent variables. 
 
 ```{r, warning=FALSE, message=FALSE}
 vif(inter_model)
@@ -484,18 +484,27 @@ performance[i, ] = colMeans(metrics[rows, ])
 }
 
 performance
+
 ```
 
+From the results we can see that oversampling has significantly improved the True Positive Rate (TPR) across all models, indicating that it is effective in enhancing the models' ability to correctly identify positive cases. 
+Despite the improvement in TPR, oversampling has not led to a significant increase in the Area Under the ROC Curve (AUC). This suggests that while oversampling improves the models' performance in terms of correctly identifying positive cases, it may not have a substantial impact on the models' overall discrimination ability between positive and negative cases.
+
+\newpage
 
 # Generalized Additive Models on Original Dataset
 
 We started fitting a model that includes all variables; this first formulation includes smooth terms for Age, Income, CCAvg and Mortgage, allowing greater flexibility in the relationship between these variables and the response variable Personal.Loan, while also incorporating categorical factors representing Family, Education, Securities.Account, CD.Account, Online, and CreditCard, considered as linear.  
+
 ```{r}
 full_model <- gam(Personal.Loan ~ s(Age) + s(Income) + s(CCAvg) + s(Mortgage) +
                     Family + Education + Securities.Account + 
                     CD.Account + Online + CreditCard , data = data, family = binomial)
 summary(full_model)
+
 ```
+
+\newpage
 
 The second model excludes non-significant variables Age and Mortgage, and utilizes only Income and CCAvg as smooth terms. The other variables remain the same as in the first model.
 ```{r}
@@ -505,28 +514,35 @@ model <- gam(Personal.Loan ~ s(Income) + s(CCAvg) +
 summary(model)
 ```
 
+\newpage
 The third model includes also interactions between Income and Family or Education.They demonstrated significance, suggesting that the relationship between income and loan eligibility varies based on family size and education level.
 ```{r}
 inter_model <- gam(Personal.Loan ~ s(Income) + s(CCAvg) +
                     Family + Education + Securities.Account + 
-                    CD.Account + Online + CreditCard + Income:Family + Income:Education , data = data, family = binomial)
+                    CD.Account + Online + CreditCard + Income:Family +
+                     Income:Education , data = data, family = binomial)
 summary(inter_model)
 ```
 
+\newpage
 There we plots the residuals of model with interactions to assess the model's fit.
 ```{r}
 plot(inter_model, residuals=TRUE, pch=1, pages=1)
 ```
 
+
 To determine the most effective model, we calculated and compared the Akaike Information Criterion (AIC) values of the full model, the model, and the model with interactions, alongside their deviance residuals. 
-```{r}
+```{r, echo=FALSE}
 res_dev= c(full_model$deviance, model$deviance, inter_model$deviance)
 as.matrix(AIC(full_model, model, inter_model) %>% mutate(res_dev=res_dev))
 ```
 
+\newpage
+
 Finally we plotted the fitted smooth effects to visually assess the model's fit and identify any potential issues.
 ```{r}
-formula <- Personal.Loan ~ s(Income) + s(CCAvg) + Family + Education + Securities.Account + CD.Account + Online + CreditCard + Income:Family + Income:Education
+formula <- Personal.Loan ~ s(Income) + s(CCAvg) + Family + Education + 
+  Securities.Account + CD.Account + Online + CreditCard + Income:Family + Income:Education
 model <- gam(formula, data = data, family = binomial)
 num_variables <- length(model$terms)
 num_rows <- ceiling(num_variables / 2)  
@@ -537,7 +553,7 @@ for (i in 1:num_variables) {
 ```
 
 To evaluate the predictive performance, we implemented ten-fold cross-validation. This method allowed us to evaluate the model's accuracy, true positive rate (TPR), true negative rate (TNR) and area under the curve (AUC) of receiver operating characteristic (ROC).
-```{r, message=FALSE, warning=FALSE}
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
 # Function to perform cross-validation with a GAM model and return the mean evaluation metrics
 cv_gam_full_unbalanced <- function(data, formula, k = 10) {
   # Initialize variables to store evaluation metrics across all folds
@@ -694,17 +710,20 @@ print(cv_results_inter_unbalanced)
 
 ```
 
+\newpage
+
 # Generalized Additive Models on Balanced Dataset
 
 We decided to balance our dataset through oversampling techniques. In this procedure, we balanced the dataset by increasing the representation of the minority class through replication of its instances. By doing so, we aimed to improve the model's sensitivity while maintaining overall predictive accuracy.
-```{r}
+```{r, echo=FALSE}
 #balancing original dataset with resempling
 set.seed(123)
 minority_data <- data[data$Personal.Loan == 1, ]
 majority_data <- data[data$Personal.Loan == 0, ]
 
 #Dataset balanced with simple oversampling
-data_oversampled = minority_data[sample(1:nrow(minority_data), size = nrow(majority_data), replace = TRUE), ] %>%
+data_oversampled = minority_data[sample(1:nrow(minority_data), 
+                                        size = nrow(majority_data), replace = TRUE), ] %>%
   rbind(., majority_data)
 
 #Dataset balanced by replicating the subset of the less frequent class 10 times
@@ -715,36 +734,46 @@ data_oversampled2 = rep(1:nrow(minority_data), each = 10) %>%
 
 We repeated what we did in the first part with the new dataset starting with the model that include all variables.
 ```{r}
-full_model_oversampled <- gam(Personal.Loan ~ s(Age) + s(Income) + s(CCAvg) + s(Mortgage) +
-                    Family + Education + Securities.Account + 
-                    CD.Account + Online + CreditCard , data = data_oversampled2, family = binomial)
+full_model_oversampled <- gam(Personal.Loan ~ s(Age) + s(Income) + s(CCAvg) + s(Mortgage) 
+                    + Family + Education + Securities.Account + 
+                    CD.Account + Online + CreditCard , data = data_oversampled2, 
+                    family = binomial)
 summary(full_model_oversampled)
 ```
+
+\newpage
 
 Then, according to the summary, we decided not to use spline for Mortgage variable.
 ```{r}
 model_oversampled <- gam(Personal.Loan ~ s(Age) + s(Income) + s(CCAvg) + Mortgage +
                     Family + Education + Securities.Account + 
-                    CD.Account + Online + CreditCard , data = data_oversampled2, family = binomial)
+                    CD.Account + Online + CreditCard , data = data_oversampled2,
+                    family = binomial)
 summary(model_oversampled)
 ```
+
+\newpage
 
 Then, as before, we introduced interactions between Income and Family or Education.
 ```{r}
 inter_model_oversampled <- gam(Personal.Loan ~ s(Age) + s(Income) + s(CCAvg) + Mortgage +
                     Family + Education + Securities.Account + 
-                    CD.Account + Online + CreditCard + Income:Family + Income:Education , data = data_oversampled2, family = binomial)
+                    CD.Account + Online + CreditCard + Income:Family + Income:Education , 
+                    data = data_oversampled2, family = binomial)
 summary(inter_model_oversampled)
 ```
 
-```{r}
+\newpage
+
+```{r, echo=FALSE}
 res_dev= c(full_model_oversampled$deviance, model_oversampled$deviance, inter_model_oversampled$deviance)
 as.matrix(AIC(full_model_oversampled, model_oversampled, inter_model_oversampled) %>% mutate(res_dev=res_dev))
 ```
 
+
 To evaluate the predictive performance, we again implemented ten-fold cross-validation.
 
-```{r, message=FALSE, warning=FALSE}
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
 # Function to perform cross-validation with a GAM model and return the mean evaluation metrics
 cv_gam_full_oversampled <- function(data_oversampled2, formula, k = 10) {
   # Initialize variables to store evaluation metrics across all folds
@@ -1229,7 +1258,8 @@ For the balanced dataset too the cross-validation pointed out that the best numb
 
 ```{r}
 #Balancing dataset with simple oversampling
-train_data_oversampled = minority_train_data[sample(1:nrow(minority_train_data), size = nrow(majority_train_data), replace = TRUE), ] %>%
+train_data_oversampled = minority_train_data[sample(1:nrow(minority_train_data), 
+                                                    size = nrow(majority_train_data), replace = TRUE), ] %>%
   rbind(., majority_train_data)
 
 #10-fold CV model evaluation
