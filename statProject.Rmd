@@ -1305,6 +1305,7 @@ ggplot2::ggplot(varImp(rf1, useModel = FALSE))+ggtitle("Variable importance")
 ```
 In conclusion the balanced dataset performed slightly better than the unbalanced one in terms of AUC; the variable importance didn't change significantly among the datasets.
 
+
 \newpage
 
 # A Bayesian Approach
@@ -1354,7 +1355,7 @@ y_test <- data_test$Personal.Loan
 
 # Calculate correct predictions
 correct_predictions <- sum(predicted_labels == y_test)
-print(paste("Assessment for GLM."))
+print(paste("Assessment for logistic regression model."))
 print(paste("Correct Predictions:", correct_predictions))
 
 # Calculate accuracy
@@ -1385,13 +1386,19 @@ Let's delve into the Bayesian model.
 Since we are facing a binary classification problem, the likelihood is:
 
 $$
-L(\beta | y, X ) = \Pi_i p(y_i | X_i, \beta)
+L(\beta | X,y ) = \Pi_i p(y_i | X_i, \beta)
 $$
 
 where 
 $$
 p(y_i | X_i, \beta) = \frac{1}{1+e^{-X_i\beta}}
 $$
+
+Our posterior will be 
+$$
+\pi(\beta|X,y) \propto L(\beta | X,y ) \pi(\beta)
+$$
+
 
 One of the initial challenges encountered in this modeling process is setting the prior distributions for the coefficients: it forced us to develop our own idea about the underlying system that produces the outcome variable Personal.Loan.
 
@@ -1453,15 +1460,6 @@ We can see that the sign of the coefficients stay the same, meaning that our pri
 
 We can also extract the WAIC coefficient, similar to the AIC: lower values indicate better model performance. 
 
-$$
-WAIC=-2(log.likelihood-pWAIC)
-$$
-
-Where pWAIC is the effective number of parameters, also known as the penalty term:
-
-$$
-pWAIC = \Sigma_i Var(log.likelihood_i)
-$$
 
 ```{r, echo=FALSE}
 waic(model)
@@ -1532,7 +1530,7 @@ predicted_labels <- ifelse(predicted_probabilities > threshold, 1, 0)
 
 # Calculate correct predictions
 correct_predictions <- sum(predicted_labels == y_test)
-print(paste("Assessment for Bayesian GLM."))
+print(paste("Assessment of the full Bayesian model."))
 print(paste("Correct Predictions:", correct_predictions))
 
 # Calculate accuracy
@@ -1571,7 +1569,7 @@ Let's try to modify the model cutting the variables that are not significant: Mo
 
 ```{r, message=FALSE, warning=FALSE}
 capture.output({
-# Fit the Bayesian logistic regression model with the specified prior
+# Fit the reduced Bayesian logistic regression model with the specified priors
 # Define informative priors for each coefficient
 prior_spec1 <- c(
   prior(normal(0.3, 0.3), class = "b", coef = "Income"),
@@ -1628,7 +1626,7 @@ predicted_labels <- ifelse(predicted_probabilities > threshold, 1, 0)
 
 # Calculate correct predictions
 correct_predictions <- sum(predicted_labels == y_test)
-print(paste("Total Predictions for data1_test Bayesian GLM."))
+print(paste("Assessment of the reduced Bayesian model."))
 print(paste("Correct Predictions:", correct_predictions))
 
 # Calculate accuracy
@@ -1654,7 +1652,10 @@ print(paste("AUC:", auc_value))
 dummy_accuracy <- sum(y_test == 0) / length(y_test)
 print(paste("Dummy Accuracy:", dummy_accuracy))
 ```
+
 We can see that the reduced model has a slightly better AUC than the full model, our choice to drop them was correct.
+
+
 
 
 #RESULTS AND CONCLUSIONS
