@@ -63,6 +63,7 @@ library(e1071)
 library(caret)
 library(ROSE)
 library(forcats)
+library(brms)
 
 #Importing the dataset
 data = read.csv("Bank_loan.csv", header = T)
@@ -1285,30 +1286,20 @@ After trying another package (UPG), we opted to use the brms package: Bayesian M
 Since with many data the Bayesian model is very similar to the classic glm one, we tried to balance the dataset through undersampling.
 
 ```{r, message=FALSE, warning=FALSE}
-# Identify indices of majority and minority classes
-
 data_train <- data[1:4500,]
 data_test <- data[4501:5000,]
 
 majority_indices <- which(data_train$Personal.Loan == 0)
 minority_indices <- which(data_train$Personal.Loan == 1)
 
-# Count the number of observations in each class
 num_majority <- length(majority_indices)
 num_minority <- length(minority_indices)
 
-# Undersample the majority class
 undersampled_indices <- sample(majority_indices, size = 3*num_minority)
 
-# Combine indices of minority and undersampled majority class
 balanced_indices <- c(undersampled_indices, minority_indices)
-
-# Create the balanced dataset
 balanced_data_train <- data[balanced_indices, ]
-
 shuffled_indices <- sample(nrow(balanced_data_train))
-
-# Use the sampled indices to reorder the rows
 balanced_data_train <- balanced_data_train[shuffled_indices, ]
 ```
 
@@ -1323,7 +1314,7 @@ summary(train_model)
 
 
 
-```{r}
+```{r, echo=FALSE}
 predicted_probabilities <- predict(train_model, newdata = data_test)
 # Convert probabilities to binary predictions
 threshold <- 0.2
@@ -1357,8 +1348,6 @@ print(paste("AUC:", auc_value))
 # Dummy accuracy
 dummy_accuracy <- sum(y_test == 0) / length(y_test)
 print(paste("Dummy Accuracy:", dummy_accuracy))
-
-
 ```
 
 Let's delve into the Bayesian model.
@@ -1411,7 +1400,6 @@ capture.output({
 )
 
 # Fit the Bayesian logistic regression model with the specified priors
-
   model <- brm(
   formula = Personal.Loan ~ Age + Income + Family + CCAvg + Education + Mortgage 
   + Securities.Account + CD.Account + Online + CreditCard,
@@ -1427,7 +1415,7 @@ capture.output({
 
 ```
 
-```{r}
+```{r, echo=FALSE}
 summary_model <- summary(model)
 summary_model
 ```
@@ -1446,14 +1434,14 @@ $$
 pWAIC = \Sigma_i Var(log.likelihood_i)
 $$
 
-```{r}
+```{r, echo=FALSE}
 waic(model)
 ```
 
 
 We use function hypothesis() of the brms package to test the significance of the predictors.
 
-```{r}
+```{r, echo=FALSE}
 # Hypothesis testing for coefficient significance
 # Bayesian model struggles with Age = 0, better test > or <
 hypothesis_testing_greater <- hypothesis(model, c("Age > 0", "Income > 0", "CCAvg > 0", "Mortgage > 0",
@@ -1474,16 +1462,14 @@ We can state that Age, Mortgage and Securities.Account are not significant.
 
 We can also plot credibility intervals for the coefficients. 
 
-```{r}
+```{r, echo=FALSE}
 par(mar = c(5, 5, 4, 2), cex.axis = 0.5)
 
-# Extract coefficients and credible intervals
 # Exclude the intercept coefficient to visualize better the results
 coefficients <- summary_model$fixed[-1, "Estimate"]   
 lower_ci <- summary_model$fixed[-1, "l-95% CI"]
 upper_ci <- summary_model$fixed[-1, "u-95% CI"]
 
-# Plot coefficients with confidence intervals
 plot(x = 1:length(coefficients), y = coefficients, type = "p", cex = 0.5, 
      ylim = range(c(lower_ci, upper_ci)),
      main = "Coefficients with 95% CIs", xlab = "", ylab = "",
@@ -1493,16 +1479,13 @@ plot(x = 1:length(coefficients), y = coefficients, type = "p", cex = 0.5,
 axis(side = 2)
 box()
 
-# Add vertical lines for confidence intervals
 segments(x0 = 1:length(coefficients), y0 = lower_ci, 
          x1 = 1:length(coefficients), y1 = upper_ci, col = "red", lwd = 2)
 abline(h = 0, col = "black")
-
-
 ```
 
 
-```{r}
+```{r, echo=FALSE}
 # Assessing the model
 # Extracting the response variable for the test data
 y_test <- data_test$Personal.Loan
@@ -1548,10 +1531,10 @@ dummy_accuracy <- sum(y_test == 0) / length(y_test)
 print(paste("Dummy Accuracy:", dummy_accuracy))
 
 ```
+
 The AUC, which is the coefficient we choose to compare the models, is sligthly lower than the one of the Glm model.
 
 We also tried a 5-fold CV to compare the Bayesian and the classic Glm model, under-sampling on the train set, we got similar results, but the classic model is still better: Average AUC (glm): 0.963722250099581, Average AUC (brm): 0.958610378527511.
-
 
 About the significance of the coefficients, we try to fit another model with less variables and compare the WAICs.
 
@@ -1588,18 +1571,18 @@ model1 <- brm(
 ```
 
 
-```{r}
+```{r, echo=FALSE}
 summary_model1 <- summary(model1)
 summary_model1
 ```
-```{r}
+```{r, echo=FALSE}
 waic(model1)
 ```
 It is interesting to note that we get a lower WAIC, then we choose to take the reduced model.
 Let's assess it.
 
 
-```{r}
+```{r, echo=FALSE}
 # Extracting the response variable for the test data
 y_test <- data_test$Personal.Loan
 
